@@ -152,6 +152,10 @@ export const storage = {
   verifyPassword(user: User, password: string): boolean {
     return bcrypt.compareSync(password, user.passwordHash);
   },
+  setPassword(userId: number, newPassword: string): void {
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
+    db.update(users).set({ passwordHash }).where(eq(users.id, userId)).run();
+  },
 
   // ---- Sessions (auth tokens, persisted so logins survive restarts) ----
   createSession(userId: number, token: string, ttlSeconds = 60 * 60 * 24 * 30): void {
@@ -174,6 +178,9 @@ export const storage = {
   },
   deleteSession(token: string): void {
     sqlite.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
+  },
+  deleteAllSessionsForUser(userId: number): void {
+    sqlite.prepare(`DELETE FROM sessions WHERE user_id = ?`).run(userId);
   },
   purgeExpiredSessions(): void {
     sqlite.prepare(`DELETE FROM sessions WHERE expires_at < ?`).run(now());

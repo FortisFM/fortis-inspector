@@ -171,6 +171,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ ok: true });
   });
 
+  // Change the current user's password. Requires the current password to
+  // confirm. Issues a fresh token and invalidates all other sessions for
+  // this user so any other logged-in devices are kicked out.
+  app.post("/api/me/password", requireAuth, (req, res) => {
+    const u = (req as any).user;
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current and new passwords are required" });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: "New password must be at least 8 characters" });
+    }
+    if (!storage.verifyPassword(u, currentPassword)) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+    storage.setPassword(u.id, newPassword);
+    // Invalidate every existing session for this user, then issue a new one
+    // so the caller stays logged in on this device but any other devices are
+    // forced to log in again with the new password.
+    storage.deleteAllSessionsForUser(u.id);
+    const newToken = issueToken(u.id);
+    res.json({ token: newToken });
+  });
+
   // ---------------- Sites ----------------
   app.get("/api/sites", requireAuth, (_req, res) => {
     const sites = storage.listSites().map((s) => {

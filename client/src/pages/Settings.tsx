@@ -3,8 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { API_BASE, getAuthToken } from "@/lib/queryClient";
+import { API_BASE, getAuthToken, setAuthToken, apiRequest } from "@/lib/queryClient";
 import { useAiStatus } from "@/hooks/use-ai-status";
 import { useToast } from "@/hooks/use-toast";
 import { Phone, Mail, Building2, Download, Bell, BellOff, Sparkles, Check } from "lucide-react";
@@ -226,6 +228,8 @@ export default function Settings() {
           </CardContent>
         </Card>
 
+        <ChangePasswordCard />
+
         <Card>
           <CardContent className="p-5 text-sm text-muted-foreground">
             <h2 className="mb-2 font-serif text-base font-semibold text-foreground">Email sending</h2>
@@ -246,5 +250,99 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">{value}</span>
     </div>
+  );
+}
+
+function ChangePasswordCard() {
+  const { toast } = useToast();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (next.length < 8) {
+      toast({ title: "Password too short", description: "Use at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    if (next !== confirm) {
+      toast({ title: "Passwords do not match", description: "Re-enter the new password.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await apiRequest("POST", "/api/me/password", {
+        currentPassword: current,
+        newPassword: next,
+      });
+      const data = await res.json();
+      if (data.token) setAuthToken(data.token);
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      toast({ title: "Password updated", description: "Other devices have been signed out." });
+    } catch (err: any) {
+      const message = err?.message || "Could not update password";
+      toast({ title: "Update failed", description: message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <h2 className="mb-3 font-serif text-base font-semibold">Change password</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Use at least 8 characters. Updating your password will sign out any other devices you are logged in on.
+        </p>
+        <form onSubmit={submit} className="space-y-3" data-testid="form-change-password">
+          <div>
+            <Label htmlFor="pw-current">Current password</Label>
+            <Input
+              id="pw-current"
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              required
+              data-testid="input-current-password"
+            />
+          </div>
+          <div>
+            <Label htmlFor="pw-new">New password</Label>
+            <Input
+              id="pw-new"
+              type="password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              required
+              minLength={8}
+              data-testid="input-new-password"
+            />
+          </div>
+          <div>
+            <Label htmlFor="pw-confirm">Confirm new password</Label>
+            <Input
+              id="pw-confirm"
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              minLength={8}
+              data-testid="input-confirm-password"
+            />
+          </div>
+          <div className="pt-1">
+            <Button type="submit" disabled={saving} data-testid="button-change-password">
+              {saving ? "Updating..." : "Update password"}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
