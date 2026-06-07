@@ -25,6 +25,7 @@ export default function SiteEdit() {
   const [form, setForm] = useState({ name: "", address: "", clientName: "", clientEmail: "", clientPhone: "", notes: "" });
   const [frequency, setFrequency] = useState("monthly");
   const [customDays, setCustomDays] = useState(30);
+  const [nextDueDate, setNextDueDate] = useState("");
   useEffect(() => {
     if (site) {
       setForm({
@@ -34,6 +35,8 @@ export default function SiteEdit() {
       const f = frequencyToValue(site.inspectionFrequencyDays);
       setFrequency(f.value);
       setCustomDays(f.customDays);
+      // site.nextDueDate is stored as YYYY-MM-DD; if it has a time component, trim it
+      setNextDueDate(site.nextDueDate ? String(site.nextDueDate).slice(0, 10) : "");
     }
   }, [site]);
 
@@ -42,6 +45,7 @@ export default function SiteEdit() {
       (await apiRequest("PATCH", `/api/sites/${siteId}`, {
         ...form,
         inspectionFrequencyDays: valueToDays(frequency, customDays),
+        nextDueDate: nextDueDate,
       })).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sites", siteId] });
@@ -89,6 +93,11 @@ export default function SiteEdit() {
               <Input id="clientEmail" type="email" value={form.clientEmail} onChange={set("clientEmail")} data-testid="input-edit-client-email" />
             </div>
             <FrequencyPicker value={frequency} customDays={customDays} onValueChange={setFrequency} onCustomDaysChange={setCustomDays} />
+            <div className="space-y-2">
+              <Label htmlFor="nextDueDate">Next inspection due date</Label>
+              <Input id="nextDueDate" type="date" value={nextDueDate} onChange={(e) => setNextDueDate(e.target.value)} data-testid="input-edit-next-due" />
+              <p className="text-xs text-muted-foreground">Set the date the next inspection is due. The cycle continues from this date.</p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
               <Textarea id="notes" value={form.notes} onChange={set("notes")} rows={3} data-testid="input-edit-notes" />

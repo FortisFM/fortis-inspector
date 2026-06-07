@@ -225,11 +225,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const parsed = insertSiteSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message });
     const data: any = { ...parsed.data };
-    // Calculate the first due date from today when a frequency is set.
+    // If the caller provided a nextDueDate, use it as the first scheduled date.
+    // Otherwise fall back to today + frequency.
     if (data.inspectionFrequencyDays && !data.nextDueDate) {
       data.nextDueDate = new Date(Date.now() + data.inspectionFrequencyDays * 86400000)
         .toISOString()
         .slice(0, 10);
+    } else if (!data.inspectionFrequencyDays) {
+      data.nextDueDate = null;
     }
     res.json(storage.createSite(data));
   });
@@ -238,11 +241,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const parsed = insertSiteSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid input" });
     const data: any = { ...parsed.data };
-    // When frequency changes, recalculate the next due date from today.
-    if (Object.prototype.hasOwnProperty.call(data, "inspectionFrequencyDays")) {
+    const freqProvided = Object.prototype.hasOwnProperty.call(data, "inspectionFrequencyDays");
+    const nextProvided = Object.prototype.hasOwnProperty.call(data, "nextDueDate");
+    // Rules:
+    //  - If the caller sent both, trust both (lets the user explicitly set the
+    //    first scheduled date along with the frequency).
+    //  - If only frequency was sent, recalculate from today using the new freq.
+    //  - If only nextDueDate was sent, leave frequency alone and just update the date.
+    if (freqProvided && !nextProvided) {
       data.nextDueDate = data.inspectionFrequencyDays
         ? new Date(Date.now() + data.inspectionFrequencyDays * 86400000).toISOString().slice(0, 10)
         : null;
+    }
+    if (nextProvided && !data.nextDueDate) {
+      // Empty string from a date input means "clear the schedule date".
+      data.nextDueDate = null;
     }
     res.json(storage.updateSite(Number(req.params.id), data));
   });

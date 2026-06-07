@@ -39,12 +39,14 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
   });
   const [frequency, setFrequency] = useState("monthly");
   const [customDays, setCustomDays] = useState(30);
+  const [nextDueDate, setNextDueDate] = useState("");
 
   const create = useMutation({
     mutationFn: async () =>
       (await apiRequest("POST", "/api/sites", {
         ...form,
         inspectionFrequencyDays: valueToDays(frequency, customDays),
+        nextDueDate: nextDueDate || undefined,
       })).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
@@ -53,6 +55,7 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
       setForm({ name: "", address: "", clientName: "", clientEmail: "", clientPhone: "", notes: "" });
       setFrequency("monthly");
       setCustomDays(30);
+      setNextDueDate("");
     },
     onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
   });
@@ -97,6 +100,11 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
             <Input id="clientEmail" type="email" value={form.clientEmail} onChange={set("clientEmail")} data-testid="input-client-email" />
           </div>
           <FrequencyPicker value={frequency} customDays={customDays} onValueChange={setFrequency} onCustomDaysChange={setCustomDays} />
+          <div className="space-y-2">
+            <Label htmlFor="nextDueDate">First inspection due date</Label>
+            <Input id="nextDueDate" type="date" value={nextDueDate} onChange={(e) => setNextDueDate(e.target.value)} data-testid="input-site-next-due" />
+            <p className="text-xs text-muted-foreground">Leave blank to start the cycle from today.</p>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="notes">Notes</Label>
             <Textarea id="notes" value={form.notes} onChange={set("notes")} data-testid="input-site-notes" rows={3} />
