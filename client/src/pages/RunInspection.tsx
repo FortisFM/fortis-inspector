@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -45,11 +45,7 @@ export default function RunInspection() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const inspectionId = useMemo(() => {
-    const h = window.location.hash;
-    const q = h.includes("?") ? h.split("?")[1] : "";
-    return Number(new URLSearchParams(q).get("id"));
-  }, []);
+  const inspectionId = Number(params.inspectionId);
 
   const { data: site } = useQuery<Site>({ queryKey: ["/api/sites", siteId] });
   const { data: checklist, isLoading } = useQuery<ChecklistItem[]>({ queryKey: ["/api/sites", siteId, "checklist"] });
@@ -130,6 +126,7 @@ export default function RunInspection() {
       queryClient.invalidateQueries({ queryKey: ["/api/sites", siteId, "inspections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/issues"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inspections", inspectionId] });
       if (status === "submitted") {
         toast({ title: "Inspection submitted", description: "Report generated." });
         navigate(`/inspections/${inspectionId}`);

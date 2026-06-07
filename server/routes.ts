@@ -233,13 +233,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       submittedAt: status === "submitted" ? Date.now() : null,
     });
 
-    // collect existing photos to re-link
-    const incomingPhotoIds = entries.flatMap((e) => e.photoIds || []);
-    const existingPhotos = storage.listPhotosForEntries(
-      storage.listEntries(inspectionId).map((e) => e.id)
-    );
-    const photoMap = new Map(existingPhotos.map((p) => [p.id, p]));
-
     const newEntries = storage.replaceEntries(
       inspectionId,
       entries.map((e, idx) => ({
@@ -254,11 +247,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }))
     );
 
-    // re-attach photos by index correspondence
+    // re-attach uploaded photos by index correspondence (look up each photo by id)
     entries.forEach((e, idx) => {
       const created = newEntries[idx];
       for (const pid of e.photoIds || []) {
-        const orig = photoMap.get(pid);
+        const orig = storage.getPhoto(pid);
         if (orig && created) {
           storage.addPhoto(created.id, orig.filePath, orig.caption);
         }

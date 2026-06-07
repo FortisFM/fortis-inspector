@@ -21,9 +21,10 @@ function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={Sites} />
+      <Route path="/sites" component={Sites} />
       <Route path="/sites/new" component={Sites} />
       <Route path="/sites/:id/edit" component={SiteEdit} />
-      <Route path="/sites/:id/inspect" component={RunInspection} />
+      <Route path="/sites/:id/inspect/:inspectionId" component={RunInspection} />
       <Route path="/sites/:id" component={SiteDetail} />
       <Route path="/inspections/:id" component={ViewInspection} />
       <Route path="/issues/:id" component={IssueDetail} />

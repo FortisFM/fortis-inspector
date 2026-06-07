@@ -101,7 +101,7 @@ export default function SiteDetail() {
   });
   const startInspection = useMutation({
     mutationFn: async () => (await apiRequest("POST", `/api/sites/${siteId}/inspections`)).json(),
-    onSuccess: (insp: Inspection) => navigate(`/sites/${siteId}/inspect?id=${insp.id}`),
+    onSuccess: (insp: Inspection) => navigate(`/sites/${siteId}/inspect/${insp.id}`),
   });
   const deleteSite = useMutation({
     mutationFn: async () => apiRequest("DELETE", `/api/sites/${siteId}`),
