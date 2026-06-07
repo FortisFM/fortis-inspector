@@ -1,0 +1,184 @@
+import { useState } from "react";
+import { Link, useLocation } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { Plus, Building2, MapPin, ClipboardList, AlertTriangle, ChevronRight } from "lucide-react";
+import type { Site } from "@shared/schema";
+
+type SiteWithStats = Site & { checklistCount: number; inspectionCount: number; openIssues: number };
+
+function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    name: "",
+    address: "",
+    clientName: "",
+    clientEmail: "",
+    clientPhone: "",
+    notes: "",
+  });
+
+  const create = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/sites", form)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
+      toast({ title: "Site added", description: `${form.name} has been created.` });
+      onOpenChange(false);
+      setForm({ name: "", address: "", clientName: "", clientEmail: "", clientPhone: "", notes: "" });
+    },
+    onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+  });
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="font-serif">Add Site</DialogTitle>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!form.name.trim()) return;
+            create.mutate();
+          }}
+          className="space-y-4"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="name">Site name *</Label>
+            <Input id="name" value={form.name} onChange={set("name")} data-testid="input-site-name" required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="address">Address</Label>
+            <Input id="address" value={form.address} onChange={set("address")} data-testid="input-site-address" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="clientName">Client contact</Label>
+              <Input id="clientName" value={form.clientName} onChange={set("clientName")} data-testid="input-client-name" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="clientPhone">Contact phone</Label>
+              <Input id="clientPhone" value={form.clientPhone} onChange={set("clientPhone")} data-testid="input-client-phone" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="clientEmail">Contact email</Label>
+            <Input id="clientEmail" type="email" value={form.clientEmail} onChange={set("clientEmail")} data-testid="input-client-email" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="notes">Notes</Label>
+            <Textarea id="notes" value={form.notes} onChange={set("notes")} data-testid="input-site-notes" rows={3} />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={create.isPending} data-testid="button-save-site">
+              {create.isPending ? "Saving…" : "Add site"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default function Sites() {
+  const [, navigate] = useLocation();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const { data: sites, isLoading } = useQuery<SiteWithStats[]>({ queryKey: ["/api/sites"] });
+
+  return (
+    <>
+      <PageHeader
+        title="Sites"
+        description="Facilities under management"
+        actions={
+          <Button onClick={() => setDialogOpen(true)} data-testid="button-add-site">
+            <Plus className="mr-2 h-4 w-4" /> Add site
+          </Button>
+        }
+      />
+
+      {isLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-32 w-full rounded-lg" />
+          ))}
+        </div>
+      ) : !sites || sites.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="mb-4 rounded-full bg-slate-100 p-4">
+              <Building2 className="h-7 w-7 text-primary" />
+            </div>
+            <h3 className="font-serif text-lg font-semibold">No sites yet</h3>
+            <p className="mb-5 mt-1 max-w-xs text-sm text-muted-foreground">
+              Add your first site to start building inspection checklists.
+            </p>
+            <Button onClick={() => setDialogOpen(true)} data-testid="button-add-first-site">
+              <Plus className="mr-2 h-4 w-4" /> Add your first site
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {sites.map((site) => (
+            <Link key={site.id} href={`/sites/${site.id}`} data-testid={`card-site-${site.id}`}>
+              <Card className="group h-full cursor-pointer transition-shadow hover-elevate">
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0">
+                      <h3 className="truncate font-serif text-base font-semibold text-foreground" data-testid={`text-site-name-${site.id}`}>
+                        {site.name}
+                      </h3>
+                      {site.address && (
+                        <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5 flex-shrink-0" /> {site.address}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
+                  </div>
+                  <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <ClipboardList className="h-3.5 w-3.5" /> {site.checklistCount} checks
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      {site.inspectionCount} inspections
+                    </span>
+                    {site.openIssues > 0 && (
+                      <span className="ml-auto flex items-center gap-1.5 font-medium text-red-600">
+                        <AlertTriangle className="h-3.5 w-3.5" /> {site.openIssues} open
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      <SiteFormDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+    </>
+  );
+}
