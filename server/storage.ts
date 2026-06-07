@@ -6,6 +6,7 @@ import {
   inspectionEntries,
   entryPhotos,
   issues,
+  pushSubscriptions,
 } from "@shared/schema";
 import type {
   User,
@@ -17,14 +18,19 @@ import type {
   InspectionEntry,
   EntryPhoto,
   Issue,
+  PushSubscription,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, and, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { DB_PATH, ensureDirs } from "./paths";
 
-const sqlite = new Database("data.db");
+ensureDirs();
+const sqlite = new Database(DB_PATH);
 sqlite.pragma("journal_mode = WAL");
+sqlite.pragma("synchronous = NORMAL");
+sqlite.pragma("foreign_keys = ON");
 
 export const db = drizzle(sqlite);
 
@@ -95,7 +101,35 @@ CREATE TABLE IF NOT EXISTS issues (
   resolution_note TEXT NOT NULL DEFAULT '',
   resolved_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
 `);
+
+// Lightweight column migrations for existing databases (v1.1).
+function addColumnIfMissing(table: string, column: string, ddl: string) {
+  const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+addColumnIfMissing("sites", "inspection_frequency_days", "inspection_frequency_days INTEGER");
+addColumnIfMissing("sites", "next_due_date", "next_due_date TEXT");
+addColumnIfMissing("inspections", "executive_summary", "executive_summary TEXT");
+addColumnIfMissing("entry_photos", "is_annotated", "is_annotated INTEGER NOT NULL DEFAULT 0");
 
 const now = () => Date.now();
 
@@ -117,6 +151,32 @@ export const storage = {
   },
   verifyPassword(user: User, password: string): boolean {
     return bcrypt.compareSync(password, user.passwordHash);
+  },
+
+  // ---- Sessions (auth tokens, persisted so logins survive restarts) ----
+  createSession(userId: number, token: string, ttlSeconds = 60 * 60 * 24 * 30): void {
+    const created = now();
+    const expires = created + ttlSeconds * 1000;
+    sqlite
+      .prepare(`INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`)
+      .run(token, userId, created, expires);
+  },
+  getSessionUserId(token: string): number | undefined {
+    const row = sqlite
+      .prepare(`SELECT user_id, expires_at FROM sessions WHERE token = ?`)
+      .get(token) as { user_id: number; expires_at: number } | undefined;
+    if (!row) return undefined;
+    if (row.expires_at < now()) {
+      sqlite.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
+      return undefined;
+    }
+    return row.user_id;
+  },
+  deleteSession(token: string): void {
+    sqlite.prepare(`DELETE FROM sessions WHERE token = ?`).run(token);
+  },
+  purgeExpiredSessions(): void {
+    sqlite.prepare(`DELETE FROM sessions WHERE expires_at < ?`).run(now());
   },
 
   // ---- Sites ----
@@ -309,6 +369,44 @@ export const storage = {
   },
   updateIssue(id: number, data: Partial<Issue>): Issue {
     return db.update(issues).set(data).where(eq(issues.id, id)).returning().get();
+  },
+
+  // ---- Photos (annotated update) ----
+  setPhotoAnnotated(id: number, isAnnotated: boolean): void {
+    db.update(entryPhotos).set({ isAnnotated }).where(eq(entryPhotos.id, id)).run();
+  },
+
+  // ---- Inspections (helpers) ----
+  listAllInspections(): Inspection[] {
+    return db.select().from(inspections).all();
+  },
+  lastSubmittedInspection(siteId: number, beforeId?: number): Inspection | undefined {
+    return this.listInspections(siteId)
+      .filter((i) => i.status === "submitted" && (beforeId ? i.id !== beforeId : true))
+      .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0))[0];
+  },
+  hasDraft(siteId: number): boolean {
+    return this.listInspections(siteId).some((i) => i.status === "draft");
+  },
+
+  // ---- Push subscriptions ----
+  listPushSubscriptions(): PushSubscription[] {
+    return db.select().from(pushSubscriptions).all();
+  },
+  listPushSubscriptionsForUser(userId: number): PushSubscription[] {
+    return db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId)).all();
+  },
+  addPushSubscription(userId: number, endpoint: string, p256dh: string, auth: string): PushSubscription {
+    const existing = db.select().from(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint)).get();
+    if (existing) return existing;
+    return db
+      .insert(pushSubscriptions)
+      .values({ userId, endpoint, p256dh, auth, createdAt: now() })
+      .returning()
+      .get();
+  },
+  removePushSubscription(endpoint: string): void {
+    db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint)).run();
   },
 };
 

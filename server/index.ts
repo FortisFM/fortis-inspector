@@ -1,6 +1,9 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
+import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
@@ -8,21 +11,68 @@ import { createServer } from "node:http";
 const app = express();
 const httpServer = createServer(app);
 
+// Trust the first proxy (Railway terminates TLS at its edge). This is required
+// for express-rate-limit to see the real client IP and for cookies to be marked
+// secure correctly.
+app.set("trust proxy", 1);
+
+// Security headers. CSP is left off because the app uses inline styles from
+// Tailwind and dynamic image sources; we can tighten this later if needed.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
+
+// Gzip compression for HTML, JSON, JS, CSS. Skips already-compressed images.
+app.use(compression());
+
+// Global rate limit: 600 requests per IP per minute. Plenty of headroom for a
+// busy inspector doing photo uploads, blocks abuse.
+app.use(
+  rateLimit({
+    windowMs: 60_000,
+    max: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+);
+
+// Tighter limit on /api/login to slow down brute force attempts.
+app.use(
+  "/api/login",
+  rateLimit({
+    windowMs: 15 * 60_000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many login attempts. Try again in a few minutes." },
+  }),
+);
+
+// Health check for Railway. Returns 200 OK as soon as the process is up.
+app.get("/healthz", (_req, res) => res.status(200).json({ ok: true }));
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
   }
 }
 
+// Allow JSON bodies up to 10MB so base64 photo previews and large checklists
+// import cleanly. Photo uploads use multer (multipart) and have their own limit.
 app.use(
   express.json({
+    limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -102,4 +152,25 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  // Graceful shutdown. Railway sends SIGTERM during deploys and gives the
+  // process ~10 seconds to finish in-flight requests before SIGKILL.
+  const shutdown = (signal: string) => {
+    log(`received ${signal}, closing http server`);
+    httpServer.close((err) => {
+      if (err) {
+        console.error("error during shutdown", err);
+        process.exit(1);
+      }
+      log("http server closed cleanly");
+      process.exit(0);
+    });
+    // Force exit if we hang for more than 9 seconds.
+    setTimeout(() => {
+      console.error("forced shutdown after timeout");
+      process.exit(1);
+    }, 9000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 })();

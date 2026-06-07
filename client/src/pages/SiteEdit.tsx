@@ -11,6 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
+import { FrequencyPicker } from "@/components/FrequencyPicker";
+import { frequencyToValue, valueToDays } from "@/lib/due";
 import type { Site } from "@shared/schema";
 
 export default function SiteEdit() {
@@ -21,15 +23,26 @@ export default function SiteEdit() {
   const { data: site, isLoading } = useQuery<Site>({ queryKey: ["/api/sites", siteId] });
 
   const [form, setForm] = useState({ name: "", address: "", clientName: "", clientEmail: "", clientPhone: "", notes: "" });
+  const [frequency, setFrequency] = useState("monthly");
+  const [customDays, setCustomDays] = useState(30);
   useEffect(() => {
-    if (site) setForm({
-      name: site.name, address: site.address, clientName: site.clientName,
-      clientEmail: site.clientEmail, clientPhone: site.clientPhone, notes: site.notes,
-    });
+    if (site) {
+      setForm({
+        name: site.name, address: site.address, clientName: site.clientName,
+        clientEmail: site.clientEmail, clientPhone: site.clientPhone, notes: site.notes,
+      });
+      const f = frequencyToValue(site.inspectionFrequencyDays);
+      setFrequency(f.value);
+      setCustomDays(f.customDays);
+    }
   }, [site]);
 
   const save = useMutation({
-    mutationFn: async () => (await apiRequest("PATCH", `/api/sites/${siteId}`, form)).json(),
+    mutationFn: async () =>
+      (await apiRequest("PATCH", `/api/sites/${siteId}`, {
+        ...form,
+        inspectionFrequencyDays: valueToDays(frequency, customDays),
+      })).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sites", siteId] });
       queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
@@ -75,6 +88,7 @@ export default function SiteEdit() {
               <Label htmlFor="clientEmail">Email</Label>
               <Input id="clientEmail" type="email" value={form.clientEmail} onChange={set("clientEmail")} data-testid="input-edit-client-email" />
             </div>
+            <FrequencyPicker value={frequency} customDays={customDays} onValueChange={setFrequency} onCustomDaysChange={setCustomDays} />
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
               <Textarea id="notes" value={form.notes} onChange={set("notes")} rows={3} data-testid="input-edit-notes" />

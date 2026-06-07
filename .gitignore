@@ -14,3 +14,14 @@ data.db-journal
 
 *.log
 .DS_Store
+
+# User upload directory - photos belong on the volume, not in git.
+uploads/
+
+# Workspace scratch from the build agent
+qa-v11-*.png
+qa-v11-report.pdf
+sample-report.pdf
+V11_HANDOFF.md
+current_session_context/
+

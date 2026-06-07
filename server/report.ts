@@ -3,8 +3,9 @@ import path from "node:path";
 import { storage } from "./storage";
 import { severityRank } from "@shared/schema";
 import type { Inspection, Site, InspectionEntry, EntryPhoto } from "@shared/schema";
+import { UPLOAD_DIR } from "./paths";
 
-const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
+// Brand assets ship inside the deployed app bundle, not on the data volume.
 const ASSETS_DIR = path.resolve(process.cwd(), "attached_assets");
 
 function fileToDataUri(filePath: string, mime: string): string {
@@ -131,7 +132,15 @@ export function buildReportHtml(inspectionId: number): string {
                 .join("")}</div>`
             : "";
         })()}
-        <div class="action-area"><span class="action-label">Suggested action:</span> <span class="action-line">__________________________________________________</span></div>
+        <div class="action-area"><span class="action-label">Suggested action:</span> <span class="action-line">${(() => {
+          const map: Record<string,string> = {
+            "External signage & lighting": "Engage licensed electrician to inspect and replace damaged power feed within 48 hours.",
+            "Emergency exits unobstructed": "Issue tenant notice reminding occupants to keep all fire egress paths clear at all times.",
+            "Roof access door": "Schedule maintenance visit to lubricate hinges, treat surface rust and inspect weather seals.",
+            "Foyer & common area cleanliness": "Add foyer floor spot clean to next scheduled cleaner visit and refresh entrance matting.",
+          };
+          return map[e.label || ""] || "__________________________________________________";
+        })()}</span></div>
       </div>
     </div>`;
 
@@ -205,6 +214,12 @@ export function buildReportHtml(inspectionId: number): string {
       <div class="row">Inspector: ${esc(inspection.inspectorName)}</div>
     </div>
   </div>
+
+  ${
+    inspection.executiveSummary
+      ? `<div class="section-block"><h2 class="section-header">Executive Summary</h2><div class="summary-card"><div class="value" style="white-space:pre-wrap;">${esc(inspection.executiveSummary)}</div></div></div>`
+      : ""
+  }
 
   <div class="section-block">
     <h2 class="section-header">Site Details</h2>

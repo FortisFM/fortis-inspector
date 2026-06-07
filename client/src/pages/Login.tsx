@@ -38,7 +38,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <img src={logoNavy} alt="Fortis FM — Facilities Management Specialists" className="mx-auto h-20 w-auto" data-testid="img-logo-login" />
+          <img src={logoNavy} alt="Fortis FM Facilities Management Specialists" className="mx-auto h-20 w-auto" data-testid="img-logo-login" />
         </div>
         <Card className="border-card-border shadow-sm">
           <CardContent className="pt-6">

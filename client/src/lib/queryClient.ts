@@ -55,6 +55,23 @@ export async function uploadPhoto(file: File): Promise<{ id: number; filePath: s
   return res.json();
 }
 
+// Download a file from an authed endpoint. Auth is a Bearer token held in
+// memory, so a plain anchor href cannot carry it. Fetch the bytes, then
+// trigger a browser download from a temporary blob URL.
+export async function downloadFile(url: string, filename: string): Promise<void> {
+  const res = await fetch(`${API_BASE}${url}`, { headers: authHeaders() });
+  await throwIfResNotOk(res);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;

@@ -1,12 +1,16 @@
-import { useLocation, useParams } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { API_BASE } from "@/lib/queryClient";
+import { API_BASE, downloadFile } from "@/lib/queryClient";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 import { StatusBadge, SeverityBadge } from "@/lib/badges";
-import { ArrowLeft, Download, FileText, ExternalLink } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, Sheet, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import type { Inspection, Site, InspectionEntry, EntryPhoto } from "@shared/schema";
 
@@ -21,6 +25,15 @@ export default function ViewInspection() {
   const id = Number(params.id);
   const [, navigate] = useLocation();
   const { data, isLoading } = useQuery<Detail>({ queryKey: ["/api/inspections", id] });
+  const { toast } = useToast();
+
+  async function exportInspection(fmt: "xlsx" | "csv") {
+    try {
+      await downloadFile(`/api/export/inspections/${id}.${fmt}`, `fortis-fm-inspection.${fmt}`);
+    } catch (e: any) {
+      toast({ title: "Export failed", description: e.message, variant: "destructive" });
+    }
+  }
 
   if (isLoading) return <Skeleton className="h-96 w-full" />;
   if (!data) return <p>Inspection not found.</p>;
@@ -28,6 +41,7 @@ export default function ViewInspection() {
   const { inspection, site, entries } = data;
   const checklistEntries = entries.filter((e) => !e.isObservation);
   const observations = entries.filter((e) => e.isObservation);
+  const failedCount = checklistEntries.filter((e) => e.status === "fail").length;
 
   const grouped = checklistEntries.reduce<Record<string, typeof entries>>((acc, e) => {
     const key = e.section || "General";
@@ -50,6 +64,15 @@ export default function ViewInspection() {
                 <ExternalLink className="mr-2 h-4 w-4" /> Web report
               </Button>
             </a>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" data-testid="button-export-inspection"><Sheet className="mr-2 h-4 w-4" /> Export</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => exportInspection("xlsx")} data-testid="menu-export-inspection-xlsx">Excel (.xlsx)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportInspection("csv")} data-testid="menu-export-inspection-csv">CSV (.csv)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <a href={`${API_BASE}/api/inspections/${id}/pdf`} target="_blank" rel="noopener noreferrer">
               <Button data-testid="button-download-pdf">
                 <Download className="mr-2 h-4 w-4" /> Download PDF
@@ -58,6 +81,32 @@ export default function ViewInspection() {
           </>
         }
       />
+
+      {failedCount > 0 && (
+        <Card className="mb-5 border-amber-500/40 bg-amber-50" data-testid="card-review-issues">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+              <div>
+                <p className="text-sm font-semibold">{failedCount} {failedCount === 1 ? "item" : "items"} need follow up</p>
+                <p className="text-sm text-muted-foreground">Review the issues from this inspection and email contractors when you are ready.</p>
+              </div>
+            </div>
+            <Link href={`/issues?inspection=${id}`}>
+              <Button data-testid="button-review-issues">Review issues</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {inspection.executiveSummary && (
+        <Card className="mb-5 border-primary/30 bg-primary/5">
+          <CardContent className="p-4">
+            <h2 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-primary">Executive summary</h2>
+            <p className="whitespace-pre-wrap text-sm" data-testid="text-exec-summary">{inspection.executiveSummary}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {(inspection.weather || inspection.generalNotes) && (
         <Card className="mb-5">

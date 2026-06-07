@@ -14,6 +14,8 @@ import RunInspection from "@/pages/RunInspection";
 import ViewInspection from "@/pages/ViewInspection";
 import Issues from "@/pages/Issues";
 import IssueDetail from "@/pages/IssueDetail";
+import Schedule from "@/pages/Schedule";
+import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 
@@ -29,6 +31,8 @@ function AppRouter() {
       <Route path="/inspections/:id" component={ViewInspection} />
       <Route path="/issues/:id" component={IssueDetail} />
       <Route path="/issues" component={Issues} />
+      <Route path="/schedule" component={Schedule} />
+      <Route path="/analytics" component={Analytics} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

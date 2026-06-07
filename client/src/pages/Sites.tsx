@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, downloadFile } from "@/lib/queryClient";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +20,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, MapPin, ClipboardList, AlertTriangle, ChevronRight } from "lucide-react";
+import { Plus, Building2, MapPin, ClipboardList, AlertTriangle, ChevronRight, Download } from "lucide-react";
+import { FrequencyPicker, DueBadge } from "@/components/FrequencyPicker";
+import { valueToDays } from "@/lib/due";
 import type { Site } from "@shared/schema";
 
 type SiteWithStats = Site & { checklistCount: number; inspectionCount: number; openIssues: number };
@@ -32,14 +37,22 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
     clientPhone: "",
     notes: "",
   });
+  const [frequency, setFrequency] = useState("monthly");
+  const [customDays, setCustomDays] = useState(30);
 
   const create = useMutation({
-    mutationFn: async () => (await apiRequest("POST", "/api/sites", form)).json(),
+    mutationFn: async () =>
+      (await apiRequest("POST", "/api/sites", {
+        ...form,
+        inspectionFrequencyDays: valueToDays(frequency, customDays),
+      })).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
       toast({ title: "Site added", description: `${form.name} has been created.` });
       onOpenChange(false);
       setForm({ name: "", address: "", clientName: "", clientEmail: "", clientPhone: "", notes: "" });
+      setFrequency("monthly");
+      setCustomDays(30);
     },
     onError: (e: any) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
   });
@@ -83,6 +96,7 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
             <Label htmlFor="clientEmail">Contact email</Label>
             <Input id="clientEmail" type="email" value={form.clientEmail} onChange={set("clientEmail")} data-testid="input-client-email" />
           </div>
+          <FrequencyPicker value={frequency} customDays={customDays} onValueChange={setFrequency} onCustomDaysChange={setCustomDays} />
           <div className="space-y-2">
             <Label htmlFor="notes">Notes</Label>
             <Textarea id="notes" value={form.notes} onChange={set("notes")} data-testid="input-site-notes" rows={3} />
@@ -92,7 +106,7 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
               Cancel
             </Button>
             <Button type="submit" disabled={create.isPending} data-testid="button-save-site">
-              {create.isPending ? "Saving…" : "Add site"}
+              {create.isPending ? "Saving..." : "Add site"}
             </Button>
           </DialogFooter>
         </form>
@@ -104,7 +118,16 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
 export default function Sites() {
   const [, navigate] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { toast } = useToast();
   const { data: sites, isLoading } = useQuery<SiteWithStats[]>({ queryKey: ["/api/sites"] });
+
+  async function exportSites(fmt: "xlsx" | "csv") {
+    try {
+      await downloadFile(`/api/export/sites.${fmt}`, `fortis-fm-sites.${fmt}`);
+    } catch (e: any) {
+      toast({ title: "Export failed", description: e.message, variant: "destructive" });
+    }
+  }
 
   return (
     <>
@@ -112,9 +135,20 @@ export default function Sites() {
         title="Sites"
         description="Facilities under management"
         actions={
-          <Button onClick={() => setDialogOpen(true)} data-testid="button-add-site">
-            <Plus className="mr-2 h-4 w-4" /> Add site
-          </Button>
+          <div className="flex gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" data-testid="button-export-sites"><Download className="mr-2 h-4 w-4" /> Export</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => exportSites("xlsx")} data-testid="menu-export-sites-xlsx">Excel (.xlsx)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportSites("csv")} data-testid="menu-export-sites-csv">CSV (.csv)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button onClick={() => setDialogOpen(true)} data-testid="button-add-site">
+              <Plus className="mr-2 h-4 w-4" /> Add site
+            </Button>
+          </div>
         }
       />
 
@@ -171,6 +205,11 @@ export default function Sites() {
                       </span>
                     )}
                   </div>
+                  {site.nextDueDate && (
+                    <div className="mt-3">
+                      <DueBadge nextDueDate={site.nextDueDate} />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </Link>

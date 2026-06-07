@@ -22,6 +22,8 @@ export const sites = sqliteTable("sites", {
   clientEmail: text("client_email").notNull().default(""),
   clientPhone: text("client_phone").notNull().default(""),
   notes: text("notes").notNull().default(""),
+  inspectionFrequencyDays: integer("inspection_frequency_days"),
+  nextDueDate: text("next_due_date"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -34,6 +36,8 @@ export const insertSiteSchema = createInsertSchema(sites)
     clientEmail: z.string().optional().default(""),
     clientPhone: z.string().optional().default(""),
     notes: z.string().optional().default(""),
+    inspectionFrequencyDays: z.number().int().nullable().optional(),
+    nextDueDate: z.string().nullable().optional(),
   });
 export type InsertSite = z.infer<typeof insertSiteSchema>;
 export type Site = typeof sites.$inferSelect;
@@ -71,6 +75,7 @@ export const inspections = sqliteTable("inspections", {
   weather: text("weather").notNull().default(""),
   generalNotes: text("general_notes").notNull().default(""),
   pdfPath: text("pdf_path"),
+  executiveSummary: text("executive_summary"),
 });
 export type Inspection = typeof inspections.$inferSelect;
 
@@ -95,6 +100,7 @@ export const entryPhotos = sqliteTable("entry_photos", {
   entryId: integer("entry_id").notNull(),
   filePath: text("file_path").notNull(),
   caption: text("caption").notNull().default(""),
+  isAnnotated: integer("is_annotated", { mode: "boolean" }).notNull().default(false),
   uploadedAt: integer("uploaded_at").notNull(),
 });
 export type EntryPhoto = typeof entryPhotos.$inferSelect;
@@ -110,6 +116,29 @@ export const issues = sqliteTable("issues", {
   resolvedAt: integer("resolved_at"),
 });
 export type Issue = typeof issues.$inferSelect;
+
+// ---------------- Push Subscriptions ----------------
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
+// ---------------- Frequency helpers ----------------
+export const FREQUENCY_OPTIONS: { value: string; label: string; days: number | null }[] = [
+  { value: "oneoff", label: "One off", days: null },
+  { value: "weekly", label: "Weekly", days: 7 },
+  { value: "fortnightly", label: "Fortnightly", days: 14 },
+  { value: "monthly", label: "Monthly", days: 30 },
+  { value: "quarterly", label: "Quarterly", days: 91 },
+  { value: "halfyear", label: "Every 6 months", days: 182 },
+  { value: "yearly", label: "Yearly", days: 365 },
+  { value: "custom", label: "Custom days", days: 0 },
+];
 
 // ---------------- Auth payloads ----------------
 export const loginSchema = z.object({

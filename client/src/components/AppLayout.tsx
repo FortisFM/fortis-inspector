@@ -1,14 +1,18 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Building2, AlertTriangle, Settings, LogOut, Menu, X } from "lucide-react";
+import { Building2, AlertTriangle, Settings, LogOut, Menu, X, CalendarClock, BarChart3 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useOnline } from "@/hooks/use-online";
+import { WifiOff } from "lucide-react";
 import logoWhite from "@assets/logo-white-on-navy.jpg";
 
 const NAV = [
   { href: "/", label: "Sites", icon: Building2, match: (p: string) => p === "/" || p.startsWith("/sites") || p.startsWith("/inspections") },
+  { href: "/schedule", label: "Schedule", icon: CalendarClock, match: (p: string) => p.startsWith("/schedule") },
   { href: "/issues", label: "Issues", icon: AlertTriangle, match: (p: string) => p.startsWith("/issues") },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, match: (p: string) => p.startsWith("/analytics") },
   { href: "/settings", label: "Settings", icon: Settings, match: (p: string) => p.startsWith("/settings") },
 ];
 
@@ -97,9 +101,27 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
       )}
 
+      <OfflineBanner />
+
       <main className="md:pl-64">
         <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">{children}</div>
       </main>
+    </div>
+  );
+}
+
+function OfflineBanner() {
+  const { online, queued } = useOnline();
+  if (online && queued === 0) return null;
+  return (
+    <div
+      className="sticky top-0 z-40 flex items-center justify-center gap-2 bg-amber-500 px-4 py-2 text-sm font-medium text-white md:ml-64"
+      data-testid="offline-banner"
+    >
+      <WifiOff className="h-4 w-4" />
+      {online
+        ? `Reconnecting, ${queued} item${queued === 1 ? "" : "s"} queued`
+        : `Working offline${queued > 0 ? `, ${queued} item${queued === 1 ? "" : "s"} queued` : ""}`}
     </div>
   );
 }

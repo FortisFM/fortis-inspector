@@ -1,0 +1,215 @@
+import fs from "node:fs";
+import path from "node:path";
+import Anthropic from "@anthropic-ai/sdk";
+import { UPLOAD_DIR } from "./paths";
+
+// Models. Sonnet for vision and the executive summary, Haiku for the cheap
+// note polish. Both support vision and JSON output.
+const MODEL_VISION = "claude-sonnet-4-5";
+const MODEL_TEXT = "claude-haiku-4-5";
+
+export function aiEnabled(): boolean {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
+let client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return client;
+}
+
+// Shared writing rules baked into every prompt so the model never produces
+// em dashes or filler language.
+const STYLE_RULES =
+  "Write in plain Australian English. Use short, direct sentences. " +
+  "Never use em dashes. Use regular hyphens, commas or full stops instead. " +
+  "Never use exclamation marks. " +
+  "Never use the words: Let's, delve, navigate, leverage, robust, seamlessly, elevate, unlock, " +
+  "or phrases like 'in today's fast paced'. Keep all technical detail.";
+
+function stripEmDashes(s: string): string {
+  return (s || "").replace(/[\u2014\u2013]/g, "-").replace(/[\u2026]/g, "...");
+}
+
+// Detect mime from the file's magic bytes rather than its extension, because
+// users sometimes upload PNGs renamed to .jpg or HEIC photos from iPhones.
+function detectMediaType(buf: Buffer): "image/jpeg" | "image/png" | "image/webp" | "image/gif" {
+  if (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  if (buf.length >= 4 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
+  return "image/jpeg";
+}
+
+function localImageBase64(url: string): { data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" } | null {
+  const file = path.basename(url.split("?")[0]);
+  const full = path.resolve(UPLOAD_DIR, file);
+  try {
+    const buf = fs.readFileSync(full);
+    return { data: buf.toString("base64"), mediaType: detectMediaType(buf) };
+  } catch {
+    return null;
+  }
+}
+
+// Pull the first {...} block out of a string and JSON.parse it. Claude can
+// sometimes wrap JSON in prose despite instructions, so we extract defensively.
+function extractJson(s: string): any {
+  if (!s) return {};
+  try {
+    return JSON.parse(s);
+  } catch {
+    const m = s.match(/\{[\s\S]*\}/);
+    if (m) {
+      try { return JSON.parse(m[0]); } catch { /* ignore */ }
+    }
+    return {};
+  }
+}
+
+function textOf(res: Anthropic.Message): string {
+  const block = res.content.find((b) => b.type === "text") as Anthropic.TextBlock | undefined;
+  return block?.text || "";
+}
+
+export interface PhotoAnalysis {
+  description: string;
+  severity: "Info" | "Minor" | "Moderate" | "Urgent";
+  suggestedAction: string;
+}
+
+export async function analysePhoto(opts: {
+  photoUrl: string;
+  itemLabel?: string;
+  siteName?: string;
+}): Promise<PhotoAnalysis> {
+  const img = opts.photoUrl.startsWith("http")
+    ? null
+    : localImageBase64(opts.photoUrl);
+  if (!img && !opts.photoUrl.startsWith("http")) {
+    throw new Error("Photo could not be read for analysis.");
+  }
+
+  const context = [
+    opts.siteName ? `Site: ${opts.siteName}` : "",
+    opts.itemLabel ? `Checklist item: ${opts.itemLabel}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const system =
+    "You are a facilities management inspector reviewing a site inspection photo. " +
+    STYLE_RULES +
+    " Return strict JSON only with keys description, severity, suggestedAction. " +
+    "severity must be exactly one of Info, Minor, Moderate, Urgent. " +
+    "description is one or two professional sentences. " +
+    "suggestedAction is one short sentence naming the trade or action needed. " +
+    "Respond with the JSON object and nothing else.";
+
+  const imageContent: Anthropic.ImageBlockParam = img
+    ? {
+        type: "image",
+        source: { type: "base64", media_type: img.mediaType, data: img.data },
+      }
+    : {
+        type: "image",
+        source: { type: "url", url: opts.photoUrl },
+      };
+
+  const res = await getClient().messages.create({
+    model: MODEL_VISION,
+    max_tokens: 400,
+    system,
+    messages: [
+      {
+        role: "user",
+        content: [
+          imageContent,
+          {
+            type: "text",
+            text:
+              "Look at this facilities management inspection photo and return the JSON described.\n" +
+              (context ? context : ""),
+          },
+        ],
+      },
+    ],
+  });
+
+  const parsed = extractJson(textOf(res));
+  const sev = ["Info", "Minor", "Moderate", "Urgent"].includes(parsed.severity)
+    ? parsed.severity
+    : "Minor";
+  return {
+    description: stripEmDashes(String(parsed.description || "")),
+    severity: sev,
+    suggestedAction: stripEmDashes(String(parsed.suggestedAction || "")),
+  };
+}
+
+export async function polishNote(opts: {
+  text: string;
+  itemLabel?: string;
+  siteName?: string;
+}): Promise<string> {
+  const system =
+    "You clean up rough inspector notes into one or two professional sentences for a " +
+    "facilities management inspection report. " +
+    STYLE_RULES +
+    " Output plain text only. No headings, no quotes, no preamble.";
+  const context = [
+    opts.siteName ? `Site: ${opts.siteName}` : "",
+    opts.itemLabel ? `Item: ${opts.itemLabel}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const res = await getClient().messages.create({
+    model: MODEL_TEXT,
+    max_tokens: 300,
+    system,
+    messages: [
+      {
+        role: "user",
+        content: `${context ? context + "\n\n" : ""}Rough note:\n${opts.text}`,
+      },
+    ],
+  });
+  return stripEmDashes(textOf(res).trim() || opts.text);
+}
+
+export async function executiveSummary(opts: {
+  siteName: string;
+  date: string;
+  inspector: string;
+  weather: string;
+  counts: { pass: number; fail: number; na: number; observations: number };
+  flagged: { label: string; severity: string }[];
+}): Promise<string> {
+  const system =
+    "You write a short executive summary for a facilities management site inspection report. " +
+    STYLE_RULES +
+    " Output 2 to 4 sentences of plain text only. No headings or lists.";
+
+  const flaggedText = opts.flagged.length
+    ? opts.flagged.map((f) => `- ${f.label} (${f.severity})`).join("\n")
+    : "No items were flagged.";
+
+  const user = `Site: ${opts.siteName}
+Date: ${opts.date}
+Inspector: ${opts.inspector}
+Weather: ${opts.weather || "Not recorded"}
+Pass: ${opts.counts.pass}, Fail: ${opts.counts.fail}, N/A: ${opts.counts.na}, Observations: ${opts.counts.observations}
+Flagged items:
+${flaggedText}
+
+Write the executive summary.`;
+
+  const res = await getClient().messages.create({
+    model: MODEL_VISION,
+    max_tokens: 400,
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+  return stripEmDashes(textOf(res).trim());
+}

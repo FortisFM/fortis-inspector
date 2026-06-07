@@ -40,7 +40,7 @@ export default function IssueDetail() {
     if (!data) return;
     const site = data.site;
     const entry = data.entry;
-    setSubject(`Fortis FM — Maintenance Required at ${site?.name || ""}`);
+    setSubject(`Fortis FM Maintenance Required at ${site?.name || ""}`);
     setBody(
 `Hi,
 
