@@ -39,6 +39,7 @@ type EntryState = {
   requiresPhoto: boolean;
   status: "pass" | "fail" | "na" | "observation";
   note: string;
+  recommendedAction: string;
   severity: string | null;
   isObservation: boolean;
   photos: UploadedPhoto[];
@@ -70,6 +71,10 @@ export default function RunInspection() {
   const [weather, setWeather] = useState("");
   const [generalNotes, setGeneralNotes] = useState("");
   const [inspectorName, setInspectorName] = useState("");
+  const [inspectionDate, setInspectionDate] = useState(() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  });
   const [initialised, setInitialised] = useState(false);
   const [lastSaved, setLastSaved] = useState<number | null>(null);
   const [savedAgo, setSavedAgo] = useState<string>("");
@@ -83,6 +88,7 @@ export default function RunInspection() {
     setInspectorName(inspection?.inspectorName || user?.name || "");
     setWeather(inspection?.weather || "");
     setGeneralNotes(inspection?.generalNotes || "");
+    if (inspection?.inspectionDate) setInspectionDate(String(inspection.inspectionDate).slice(0, 10));
 
     // Build a checklist-id-indexed map of saved entries so we can restore
     // status, note, severity and photos when reopening a draft. Observation
@@ -104,6 +110,7 @@ export default function RunInspection() {
         requiresPhoto: c.requiresPhoto,
         status: (saved?.status as any) || "na",
         note: saved?.note || "",
+        recommendedAction: (saved as any)?.recommendedAction || "",
         severity: saved?.severity ?? null,
         isObservation: false,
         photos: (saved?.photos || []).map((p) => ({ id: p.id, url: `/uploads/${p.filePath}` })),
@@ -119,6 +126,7 @@ export default function RunInspection() {
         requiresPhoto: false,
         status: "observation",
         note: o.note || "",
+        recommendedAction: (o as any).recommendedAction || "",
         severity: o.severity ?? "minor",
         isObservation: true,
         photos: (o.photos || []).map((p) => ({ id: p.id, url: `/uploads/${p.filePath}` })),
@@ -136,6 +144,7 @@ export default function RunInspection() {
       section: e.section,
       status: e.status,
       note: e.note,
+      recommendedAction: e.recommendedAction || "",
       severity: e.status === "fail" || e.isObservation ? e.severity : null,
       isObservation: e.isObservation,
       photoIds: e.photos.map((p) => p.id),
@@ -159,6 +168,7 @@ export default function RunInspection() {
         severity: "minor",
         isObservation: true,
         photos: [],
+        recommendedAction: "",
       },
     ]);
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }), 100);
@@ -171,7 +181,7 @@ export default function RunInspection() {
   const autosaveRef = useRef<number | null>(null);
   async function autosave() {
     if (!inspectionId || !initialised) return;
-    const body = { entries: buildEntriesPayload(), weather, generalNotes, inspectorName };
+    const body = { entries: buildEntriesPayload(), weather, generalNotes, inspectorName, inspectionDate };
     try {
       await apiRequest("PATCH", `/api/inspections/${inspectionId}`, body);
       setLastSaved(Date.now());
@@ -192,7 +202,7 @@ export default function RunInspection() {
     const id = window.setInterval(autosave, 5000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialised, entries, weather, generalNotes, inspectorName]);
+  }, [initialised, entries, weather, generalNotes, inspectorName, inspectionDate]);
 
   // "Saved Ns ago" ticker.
   useEffect(() => {
@@ -213,6 +223,7 @@ export default function RunInspection() {
         weather,
         generalNotes,
         inspectorName,
+        inspectionDate,
         entries: buildEntriesPayload(),
       };
       return (await apiRequest("POST", `/api/inspections/${inspectionId}/save`, payload)).json();
@@ -292,9 +303,22 @@ export default function RunInspection() {
       {/* Top fields */}
       <Card className="mb-5">
         <CardContent className="space-y-4 p-4">
-          <div className="space-y-2">
-            <Label htmlFor="inspector">Inspector</Label>
-            <Input id="inspector" value={inspectorName} onChange={(e) => setInspectorName(e.target.value)} onBlur={autosave} data-testid="input-inspector-name" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="inspector">Inspector</Label>
+              <Input id="inspector" value={inspectorName} onChange={(e) => setInspectorName(e.target.value)} onBlur={autosave} data-testid="input-inspector-name" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="inspection-date">Inspection date</Label>
+              <Input
+                id="inspection-date"
+                type="date"
+                value={inspectionDate}
+                onChange={(e) => setInspectionDate(e.target.value)}
+                onBlur={autosave}
+                data-testid="input-inspection-date"
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="weather">Weather / conditions (optional)</Label>
@@ -313,7 +337,7 @@ export default function RunInspection() {
       {/* Checklist sections */}
       {sectionKeys.map((section) => (
         <div key={section} className="mb-6">
-          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{section}</h2>
+          <h2 className="mb-3 border-b-2 border-primary/40 pb-1.5 font-serif text-2xl font-semibold text-primary">{section}</h2>
           <div className="space-y-3">
             {grouped[section].map((e) => (
               <EntryCard key={e.uid} entry={e} siteName={site?.name || ""} aiEnabled={aiEnabled}
@@ -326,7 +350,7 @@ export default function RunInspection() {
       {/* Observations */}
       {grouped["__obs"]?.length ? (
         <div className="mb-6">
-          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Observations</h2>
+          <h2 className="mb-3 border-b-2 border-primary/40 pb-1.5 font-serif text-2xl font-semibold text-primary">Observations</h2>
           <div className="space-y-3">
             {grouped["__obs"].map((e) => (
               <EntryCard key={e.uid} entry={e} siteName={site?.name || ""} aiEnabled={aiEnabled}
@@ -469,6 +493,23 @@ function EntryCard({
             data-testid={`input-note-${entry.uid}`}
           />
         </div>
+
+        {showAi && (
+          <div className="space-y-1.5">
+            <Label htmlFor={`rec-action-${entry.uid}`} className="text-xs font-semibold text-primary">
+              Recommended action
+            </Label>
+            <Textarea
+              id={`rec-action-${entry.uid}`}
+              value={entry.recommendedAction || ""}
+              onChange={(ev) => { onUpdate(entry.uid, { recommendedAction: ev.target.value }); onChangeSchedule(); }}
+              onBlur={onBlurSave}
+              placeholder="What needs to happen next. Brief and specific."
+              rows={2}
+              data-testid={`input-recommended-action-${entry.uid}`}
+            />
+          </div>
+        )}
 
         <PhotoUploader photos={entry.photos} onChange={(p) => { onUpdate(entry.uid, { photos: p }); onChangeSchedule(); }} />
 

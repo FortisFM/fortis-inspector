@@ -16,7 +16,20 @@ import { csvBuffer, xlsxBuffer } from "./export";
 import { configurePush, pushEnabled, publicKey, pushAdmins, pushToAll } from "./push";
 
 import { UPLOAD_DIR, PDF_DIR, ensureDirs } from "./paths";
+import { sendInspectionReportEmail } from "./mailer";
 ensureDirs();
+
+// Return the inspection date as a Date object. Prefer the user-chosen
+// inspectionDate (YYYY-MM-DD) when present, otherwise fall back to the
+// submission or start timestamp.
+function inspectionWhen(insp: { inspectionDate?: string | null; submittedAt?: number | null; startedAt: number }): Date {
+  if (insp.inspectionDate) {
+    // Parse as local-noon to avoid timezone shifting the calendar day.
+    const d = new Date(insp.inspectionDate + "T12:00:00");
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date(insp.submittedAt || insp.startedAt);
+}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -81,7 +94,7 @@ async function buildExecutiveSummary(inspectionId: number) {
   try {
     const summary = await executiveSummary({
       siteName: site?.name || "",
-      date: new Date(inspection.submittedAt || inspection.startedAt).toLocaleDateString("en-AU"),
+      date: inspectionWhen(inspection).toLocaleDateString("en-AU"),
       inspector: inspection.inspectorName,
       weather: inspection.weather,
       counts,
@@ -108,7 +121,7 @@ async function generatePdf(inspectionId: number): Promise<string> {
   const inspection = storage.getInspection(inspectionId)!;
   const site = storage.getSite(inspection.siteId)!;
   const slug = site.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const dateStr = new Date(inspection.submittedAt || inspection.startedAt).toISOString().slice(0, 10);
+  const dateStr = inspectionWhen(inspection).toISOString().slice(0, 10);
   const fileName = `fortis-fm-inspection-${slug}-${dateStr}.pdf`;
   const outPath = path.resolve(PDF_DIR, `inspection-${inspectionId}.pdf`);
 
@@ -133,7 +146,7 @@ async function generatePdf(inspectionId: number): Promise<string> {
     await browser.close();
   }
   storage.updateInspection(inspectionId, { pdfPath: `inspection-${inspectionId}.pdf` });
-  return fileName;
+  return outPath;
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -323,12 +336,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Client sends entries with optional `photoIds` (already-uploaded photo ids) to re-attach.
   app.post("/api/inspections/:id/save", requireAuth, async (req, res) => {
     const inspectionId = Number(req.params.id);
-    const { entries, weather, generalNotes, inspectorName, status } = req.body as {
+    const { entries, weather, generalNotes, inspectorName, status, inspectionDate } = req.body as {
       entries: Array<Partial<InspectionEntry> & { photoIds?: number[] }>;
       weather?: string;
       generalNotes?: string;
       inspectorName?: string;
       status?: "draft" | "submitted";
+      inspectionDate?: string;
     };
 
     storage.updateInspection(inspectionId, {
@@ -337,6 +351,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       inspectorName: inspectorName || (req as any).user.name,
       status: status === "submitted" ? "submitted" : "draft",
       submittedAt: status === "submitted" ? Date.now() : null,
+      ...(typeof inspectionDate === "string" && inspectionDate ? { inspectionDate } : {}),
     });
 
     const newEntries = storage.replaceEntries(
@@ -347,6 +362,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         section: e.section || "",
         status: e.status || "na",
         note: e.note || "",
+        recommendedAction: (e as any).recommendedAction || "",
         severity: e.severity ?? null,
         sortOrder: idx,
         isObservation: !!e.isObservation,
@@ -372,7 +388,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const inspection = storage.getInspection(inspectionId);
       if (inspection) advanceNextDue(inspection.siteId, submittedAtMs);
       try {
-        await generatePdf(inspectionId);
+        const pdfPath = await generatePdf(inspectionId);
+        const insp = storage.getInspection(inspectionId);
+        const site = insp ? storage.getSite(insp.siteId) : null;
+        if (insp && site) {
+          sendInspectionReportEmail({
+            inspectionId: String(inspectionId),
+            pdfPath,
+            site: { id: String(site.id), name: site.name, address: site.address },
+            inspection: {
+              id: String(insp.id),
+              inspectorName: insp.inspectorName,
+              inspectionDate: insp.inspectionDate,
+              createdAt: insp.startedAt ? new Date(insp.startedAt).toISOString() : null,
+              status: insp.status,
+            },
+          }).catch((err) => console.error("Mailer error:", err));
+        }
       } catch (err) {
         console.error("PDF generation failed:", err);
       }
@@ -398,17 +430,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const inspection = storage.getInspection(inspectionId);
     if (!inspection) return res.status(404).json({ message: "Not found" });
     if (inspection.status === "submitted") return res.json({ ok: true, skipped: true });
-    const { entries, weather, generalNotes, inspectorName } = req.body as {
+    const { entries, weather, generalNotes, inspectorName, inspectionDate } = req.body as {
       entries?: Array<Partial<InspectionEntry> & { photoIds?: number[] }>;
       weather?: string;
       generalNotes?: string;
       inspectorName?: string;
+      inspectionDate?: string;
     };
     storage.updateInspection(inspectionId, {
       weather: weather ?? inspection.weather,
       generalNotes: generalNotes ?? inspection.generalNotes,
       inspectorName: inspectorName ?? inspection.inspectorName,
       status: "draft",
+      ...(typeof inspectionDate === "string" && inspectionDate ? { inspectionDate } : {}),
     });
     if (Array.isArray(entries)) {
       const newEntries = storage.replaceEntries(
@@ -419,6 +453,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           section: e.section || "",
           status: e.status || "na",
           note: e.note || "",
+          recommendedAction: (e as any).recommendedAction || "",
           severity: e.severity ?? null,
           sortOrder: idx,
           isObservation: !!e.isObservation,
@@ -506,9 +541,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!inspection) return res.status(404).json({ message: "Not found" });
     const site = storage.getSite(inspection.siteId)!;
     const slug = site.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-    const dateStr = new Date(inspection.submittedAt || inspection.startedAt)
-      .toISOString()
-      .slice(0, 10);
+    const dateStr = inspectionWhen(inspection).toISOString().slice(0, 10);
     const fileName = `fortis-fm-inspection-${slug}-${dateStr}.pdf`;
     const filePath = path.resolve(PDF_DIR, `inspection-${id}.pdf`);
     try {
@@ -532,7 +565,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const inspection = storage.getInspection(issue.inspectionId);
         if (!entry || !site) return null;
         const photos = storage.listPhotos(entry.id);
-        const inspectionDate = inspection?.submittedAt || inspection?.startedAt || Date.now();
+        const inspectionDate = inspection ? inspectionWhen(inspection).getTime() : Date.now();
         const ageDays = Math.floor((Date.now() - inspectionDate) / 86400000);
         return {
           ...issue,
@@ -542,6 +575,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           label: entry.label,
           section: entry.section,
           note: entry.note,
+          recommendedAction: (entry as any).recommendedAction || "",
           severity: entry.severity,
           entryStatus: entry.status,
           isObservation: entry.isObservation,
@@ -561,9 +595,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const site = storage.getSite(issue.siteId);
     const inspection = storage.getInspection(issue.inspectionId);
     const photos = entry ? storage.listPhotos(entry.id) : [];
-    const inspectionDate = inspection?.submittedAt || inspection?.startedAt || Date.now();
+    const inspectionDate = inspection ? inspectionWhen(inspection).getTime() : Date.now();
     res.json({
       ...issue,
+      inspection,
       site,
       entry,
       photos,

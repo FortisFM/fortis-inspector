@@ -129,6 +129,8 @@ function addColumnIfMissing(table: string, column: string, ddl: string) {
 addColumnIfMissing("sites", "inspection_frequency_days", "inspection_frequency_days INTEGER");
 addColumnIfMissing("sites", "next_due_date", "next_due_date TEXT");
 addColumnIfMissing("inspections", "executive_summary", "executive_summary TEXT");
+addColumnIfMissing("inspections", "inspection_date", "inspection_date TEXT");
+addColumnIfMissing("inspection_entries", "recommended_action", "recommended_action TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("entry_photos", "is_annotated", "is_annotated INTEGER NOT NULL DEFAULT 0");
 
 const now = () => Date.now();
@@ -274,6 +276,11 @@ export const storage = {
     return db.select().from(inspections).where(eq(inspections.id, id)).get();
   },
   createInspection(siteId: number, userId: number, inspectorName: string): Inspection {
+    // Default inspection date to today in local server time as YYYY-MM-DD.
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, "0");
+    const dd = String(today.getDate()).padStart(2, "0");
     return db
       .insert(inspections)
       .values({
@@ -282,6 +289,7 @@ export const storage = {
         inspectorName,
         status: "draft",
         startedAt: now(),
+        inspectionDate: `${yyyy}-${mm}-${dd}`,
       })
       .returning()
       .get();

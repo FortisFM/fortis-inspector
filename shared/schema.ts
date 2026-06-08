@@ -72,6 +72,7 @@ export const inspections = sqliteTable("inspections", {
   status: text("status").notNull().default("draft"), // 'draft' | 'submitted'
   startedAt: integer("started_at").notNull(),
   submittedAt: integer("submitted_at"),
+  inspectionDate: text("inspection_date"), // YYYY-MM-DD the inspection was carried out
   weather: text("weather").notNull().default(""),
   generalNotes: text("general_notes").notNull().default(""),
   pdfPath: text("pdf_path"),
@@ -88,6 +89,7 @@ export const inspectionEntries = sqliteTable("inspection_entries", {
   section: text("section").notNull().default(""),
   status: text("status").notNull().default("na"), // 'pass'|'fail'|'na'|'observation'
   note: text("note").notNull().default(""),
+  recommendedAction: text("recommended_action").notNull().default(""),
   severity: text("severity"), // 'info'|'minor'|'moderate'|'urgent'|null
   sortOrder: integer("sort_order").notNull().default(0),
   isObservation: integer("is_observation", { mode: "boolean" }).notNull().default(false),

@@ -40,23 +40,38 @@ export default function IssueDetail() {
     if (!data) return;
     const site = data.site;
     const entry = data.entry;
-    setSubject(`Fortis FM Maintenance Required at ${site?.name || ""}`);
+    const inspection = data.inspection;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const photoUrls: string[] = (entry?.photos || [])
+      .map((p: any) => (p?.filePath ? `${origin}/uploads/${p.filePath}` : ""))
+      .filter(Boolean);
+    const severityLabel = entry?.severity
+      ? entry.severity.charAt(0).toUpperCase() + entry.severity.slice(1)
+      : "Not specified";
+    const area = entry?.section || "Not specified";
+    const inspectionDate = inspection?.inspectionDate || (inspection?.startedAt ? new Date(inspection.startedAt).toISOString().slice(0, 10) : "");
+    setSubject(`Fortis FM maintenance request: ${entry?.label || "Site issue"} at ${site?.name || "site"}`);
     setBody(
 `Hi,
 
-Fortis FM has identified a maintenance item requiring attention during a recent site inspection.
+Fortis FM has identified a maintenance item at one of our sites. Full details below so you can attend without needing to come back for more information.
 
 Site: ${site?.name || ""}
-Address: ${site?.address || "N/A"}
-Item: ${entry?.label || ""}
-Severity: ${entry?.severity ? entry.severity.charAt(0).toUpperCase() + entry.severity.slice(1) : "N/A"}
-Details: ${entry?.note || "See attached photos."}
+Address: ${site?.address || "Not on file"}
+Area / section: ${area}
+Inspection date: ${inspectionDate || "Not recorded"}
 
-Photos attached.
+Issue: ${entry?.label || ""}
+Severity: ${severityLabel}
+Details: ${entry?.note || "No additional notes recorded."}
+Recommended action: ${entry?.recommendedAction || "Attend the site, assess and rectify."}
 
-Suggested action: Please attend the site to assess and rectify the above item.
+${photoUrls.length ? "Photos:\n" + photoUrls.map((u) => "  " + u).join("\n") : "No photos attached."}
 
-Please reply with quote/availability.
+Approval:
+Works under $500 are pre-approved. If the work is anticipated to exceed $500, please provide a quote or estimate before proceeding.
+
+Please confirm availability and any quote required.
 
 Thanks,
 Fortis FM

@@ -22,10 +22,12 @@ type IssueRow = {
   id: number;
   siteId: number;
   siteName: string;
+  siteAddress?: string | null;
   inspectionId: number;
   label: string;
   section: string;
   note: string;
+  recommendedAction?: string;
   severity: string;
   status: string;
   ageDays: number;
@@ -131,10 +133,45 @@ export default function Issues() {
       toast({ title: "One site at a time", description: "Select issues from a single site to email a contractor." });
       return;
     }
-    const siteName = selectedRows[0]?.siteName || "site";
-    const lines = selectedRows.map((i) => `- ${i.label} (${SEV_NAME[i.severity] || i.severity})${i.note ? ": " + i.note : ""}`);
-    const subject = `Fortis FM maintenance items - ${siteName}`;
-    const body = `Hello,\n\nPlease action the following items identified during a recent inspection at ${siteName}:\n\n${lines.join("\n")}\n\nPlease confirm a timeframe for completion.\n\nRegards,\nFortis FM`;
+    const first = selectedRows[0];
+    const siteName = first?.siteName || "site";
+    const siteAddress = first?.siteAddress || "Not on file";
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const blocks = selectedRows.map((i, idx) => {
+      const photoUrls = (i.photos || [])
+        .map((p) => (p?.filePath ? `${origin}/uploads/${p.filePath}` : ""))
+        .filter(Boolean);
+      return [
+        `${idx + 1}. ${i.label}`,
+        `   Area: ${i.section || "Not specified"}`,
+        `   Severity: ${SEV_NAME[i.severity] || i.severity}`,
+        `   Details: ${i.note || "No additional notes recorded."}`,
+        `   Recommended action: ${i.recommendedAction || "Attend the site, assess and rectify."}`,
+        photoUrls.length ? "   Photos:\n" + photoUrls.map((u) => "     " + u).join("\n") : "   Photos: none attached",
+      ].join("\n");
+    });
+    const subject = `Fortis FM maintenance request: ${siteName} (${selectedRows.length} item${selectedRows.length === 1 ? "" : "s"})`;
+    const body =
+`Hi,
+
+Fortis FM has identified maintenance items at one of our sites. Full details below so you can attend without needing to come back for more information.
+
+Site: ${siteName}
+Address: ${siteAddress}
+
+Items:
+
+${blocks.join("\n\n")}
+
+Approval:
+Works under $500 are pre-approved. If the work is anticipated to exceed $500, please provide a quote or estimate before proceeding.
+
+Please confirm availability and any quote required.
+
+Thanks,
+Fortis FM
+(07) 3472 7579
+admin@fortisfm.com.au`;
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 

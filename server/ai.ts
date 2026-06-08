@@ -19,13 +19,15 @@ function getClient(): Anthropic {
 }
 
 // Shared writing rules baked into every prompt so the model never produces
-// em dashes or filler language.
+// em dashes or filler language. Aggressive brevity: every word must earn its place.
 const STYLE_RULES =
-  "Write in plain Australian English. Use short, direct sentences. " +
-  "Never use em dashes. Use regular hyphens, commas or full stops instead. " +
+  "Write in plain Australian English. Be concise. Prefer the shortest accurate phrasing. " +
+  "No filler. No preamble. No softening hedges (e.g. 'appears to be', 'seems', 'it should be noted'). " +
+  "Never use em dashes. Use regular hyphens, commas or full stops. " +
   "Never use exclamation marks. " +
-  "Never use the words: Let's, delve, navigate, leverage, robust, seamlessly, elevate, unlock, " +
-  "or phrases like 'in today's fast paced'. Keep all technical detail.";
+  "Never use the words: Let's, delve, navigate, leverage, robust, seamlessly, elevate, unlock, ensure, " +
+  "comprehensive, holistic, optimise, utilise, additionally, furthermore. " +
+  "State the fact directly. Keep all technical detail.";
 
 function stripEmDashes(s: string): string {
   return (s || "").replace(/[\u2014\u2013]/g, "-").replace(/[\u2026]/g, "...");
@@ -102,8 +104,10 @@ export async function analysePhoto(opts: {
     STYLE_RULES +
     " Return strict JSON only with keys description, severity, suggestedAction. " +
     "severity must be exactly one of Info, Minor, Moderate, Urgent. " +
-    "description is one or two professional sentences. " +
-    "suggestedAction is one short sentence naming the trade or action needed. " +
+    "description: one sentence describing what is wrong or what is shown. Max 15 words. No introductions. " +
+    "suggestedAction: one short phrase naming the trade and action. Max 10 words. No full sentences. " +
+    "Examples of good output: " +
+    `{"description":"Cracked floor tile near reception entry","severity":"Minor","suggestedAction":"Tiler to replace cracked tile"} ` +
     "Respond with the JSON object and nothing else.";
 
   const imageContent: Anthropic.ImageBlockParam = img
@@ -118,7 +122,7 @@ export async function analysePhoto(opts: {
 
   const res = await getClient().messages.create({
     model: MODEL_VISION,
-    max_tokens: 400,
+    max_tokens: 220,
     system,
     messages: [
       {
@@ -153,8 +157,8 @@ export async function polishNote(opts: {
   siteName?: string;
 }): Promise<string> {
   const system =
-    "You clean up rough inspector notes into one or two professional sentences for a " +
-    "facilities management inspection report. " +
+    "You tidy rough inspector notes into one short sentence for a facilities management report. " +
+    "Keep it under 25 words. Strip filler. Keep technical facts, measurements, locations. " +
     STYLE_RULES +
     " Output plain text only. No headings, no quotes, no preamble.";
   const context = [
@@ -166,7 +170,7 @@ export async function polishNote(opts: {
 
   const res = await getClient().messages.create({
     model: MODEL_TEXT,
-    max_tokens: 300,
+    max_tokens: 180,
     system,
     messages: [
       {
@@ -188,8 +192,9 @@ export async function executiveSummary(opts: {
 }): Promise<string> {
   const system =
     "You write a short executive summary for a facilities management site inspection report. " +
+    "Two to three sentences only. State the overall site condition, then the most important issues. " +
     STYLE_RULES +
-    " Output 2 to 4 sentences of plain text only. No headings or lists.";
+    " Output plain text only. No headings or lists.";
 
   const flaggedText = opts.flagged.length
     ? opts.flagged.map((f) => `- ${f.label} (${f.severity})`).join("\n")
@@ -207,7 +212,7 @@ Write the executive summary.`;
 
   const res = await getClient().messages.create({
     model: MODEL_VISION,
-    max_tokens: 400,
+    max_tokens: 280,
     system,
     messages: [{ role: "user", content: user }],
   });

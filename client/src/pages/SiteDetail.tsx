@@ -366,7 +366,12 @@ export default function SiteDetail() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="section">Section / category (optional)</Label>
-              <Input id="section" value={itemForm.section} onChange={(e) => setItemForm((f) => ({ ...f, section: e.target.value }))} data-testid="input-item-section" placeholder="e.g. Exterior, Fire Safety" />
+              <SectionPicker
+                key={itemDialog.open ? (itemDialog.edit?.id || "new") : "closed"}
+                value={itemForm.section}
+                onChange={(v) => setItemForm((f) => ({ ...f, section: v }))}
+                options={Array.from(new Set((checklist || []).map((c) => c.section).filter((s): s is string => !!s && s.trim().length > 0))).sort((a, b) => a.localeCompare(b))}
+              />
             </div>
             <label className="flex items-center gap-2.5">
               <Checkbox checked={itemForm.requiresPhoto} onCheckedChange={(c) => setItemForm((f) => ({ ...f, requiresPhoto: !!c }))} data-testid="checkbox-requires-photo" />
@@ -442,6 +447,69 @@ export default function SiteDetail() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function SectionPicker({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
+  const NEW = "__new__";
+  const isNew = value !== "" && !options.includes(value);
+  const [mode, setMode] = useState<"select" | "new">(isNew ? "new" : "select");
+
+  if (mode === "new" || options.length === 0) {
+    return (
+      <div className="flex gap-2">
+        <Input
+          id="section"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="e.g. Exterior, Fire Safety"
+          data-testid="input-item-section"
+          autoFocus={mode === "new"}
+        />
+        {options.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => { setMode("select"); onChange(""); }}
+            data-testid="button-section-pick-existing"
+          >
+            Pick existing
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Select
+      value={value || undefined}
+      onValueChange={(v) => {
+        if (v === NEW) {
+          setMode("new");
+          onChange("");
+        } else {
+          onChange(v);
+        }
+      }}
+    >
+      <SelectTrigger data-testid="select-item-section">
+        <SelectValue placeholder="Select a section" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((s) => (
+          <SelectItem key={s} value={s}>{s}</SelectItem>
+        ))}
+        <SelectItem value={NEW}>+ Add new section</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 

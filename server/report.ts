@@ -68,6 +68,13 @@ function fmtDate(ts: number | null): string {
   });
 }
 
+// Day-only formatting for a YYYY-MM-DD inspection date chosen by the user.
+function fmtDayOnly(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-AU", { day: "2-digit", month: "long", year: "numeric" });
+}
+
 export function buildReportHtml(inspectionId: number): string {
   const inspection = storage.getInspection(inspectionId) as Inspection;
   const site = storage.getSite(inspection.siteId) as Site;
@@ -110,6 +117,7 @@ export function buildReportHtml(inspectionId: number): string {
         <div class="badges">${statusBadge(e.status)}${sevBadge(e.severity)}</div>
       </div>
       ${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}
+      ${(e as any).recommendedAction ? `<div class="note"><span class="action-label">Recommended action:</span> ${esc((e as any).recommendedAction)}</div>` : ""}
       ${photoGrid(e.id)}
     </div>`;
 
@@ -123,6 +131,7 @@ export function buildReportHtml(inspectionId: number): string {
         </div>
         ${e.section ? `<div class="maint-sec">${esc(e.section)}</div>` : ""}
         ${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}
+        ${(e as any).recommendedAction ? `<div class="note"><span class="action-label">Recommended action:</span> ${esc((e as any).recommendedAction)}</div>` : ""}
         ${(() => {
           const photos = photosByEntry.get(e.id) || [];
           return photos.length
@@ -210,7 +219,7 @@ export function buildReportHtml(inspectionId: number): string {
     <div class="meta">
       <div class="site-name">${esc(site.name)}</div>
       ${site.address ? `<div class="row">${esc(site.address)}</div>` : ""}
-      <div class="row" style="margin-top:16px;">Inspection Date: ${esc(fmtDate(inspection.submittedAt || inspection.startedAt))}</div>
+      <div class="row" style="margin-top:16px;">Inspection Date: ${esc(inspection.inspectionDate ? fmtDayOnly(inspection.inspectionDate) : fmtDate(inspection.submittedAt || inspection.startedAt))}</div>
       <div class="row">Inspector: ${esc(inspection.inspectorName)}</div>
     </div>
   </div>
