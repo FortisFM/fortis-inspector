@@ -2,10 +2,24 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 export const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
-// In-memory auth token (iframe-safe: never persisted to localStorage/cookies)
-let authToken: string | null = null;
+// Auth token persisted in localStorage so logins survive page reloads and
+// app restarts. Cleared on logout or when the server returns 401.
+const TOKEN_KEY = "fortis_auth_token";
+let authToken: string | null = (() => {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+})();
 export function setAuthToken(token: string | null) {
   authToken = token;
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* localStorage unavailable, in-memory only */
+  }
 }
 export function getAuthToken() {
   return authToken;

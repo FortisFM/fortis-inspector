@@ -112,6 +112,19 @@ export default function SiteDetail() {
     },
   });
 
+  const [deleteInspectionId, setDeleteInspectionId] = useState<number | null>(null);
+  const deleteInspection = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/inspections/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sites", siteId, "inspections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/issues"] });
+      setDeleteInspectionId(null);
+      toast({ title: "Draft deleted" });
+    },
+    onError: (e: any) => toast({ title: "Could not delete", description: e.message, variant: "destructive" }),
+  });
+
   if (siteLoading) {
     return (
       <div className="space-y-4">
@@ -255,9 +268,21 @@ export default function SiteDetail() {
           ) : (
             <Card>
               <CardContent className="divide-y p-0">
-                {inspections!.map((insp) => (
-                  <Link key={insp.id} href={`/inspections/${insp.id}`} data-testid={`row-inspection-${insp.id}`}>
-                    <div className="flex items-center gap-3 px-4 py-3.5 hover-elevate cursor-pointer">
+                {inspections!.map((insp) => {
+                  const targetHref = insp.status === "draft"
+                    ? `/sites/${siteId}/inspect/${insp.id}`
+                    : `/inspections/${insp.id}`;
+                  const goToInspection = () => navigate(targetHref);
+                  return (
+                    <div
+                      key={insp.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={goToInspection}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goToInspection(); } }}
+                      className="flex items-center gap-3 px-4 py-3.5 hover-elevate cursor-pointer"
+                      data-testid={`row-inspection-${insp.id}`}
+                    >
                       <FileText className="h-5 w-5 text-primary" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">
@@ -271,10 +296,22 @@ export default function SiteDetail() {
                       ) : (
                         <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">Submitted</span>
                       )}
+                      {insp.status === "draft" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={(e) => { e.stopPropagation(); setDeleteInspectionId(insp.id); }}
+                          data-testid={`button-delete-draft-${insp.id}`}
+                          aria-label="Delete draft"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </div>
-                  </Link>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           )}
@@ -366,6 +403,27 @@ export default function SiteDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteInspectionId !== null} onOpenChange={(o) => { if (!o) setDeleteInspectionId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The draft and any photos saved to it will be removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteInspectionId && deleteInspection.mutate(deleteInspectionId)}
+              data-testid="button-confirm-delete-draft"
+            >
+              Delete draft
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteSiteOpen} onOpenChange={setDeleteSiteOpen}>
         <AlertDialogContent>

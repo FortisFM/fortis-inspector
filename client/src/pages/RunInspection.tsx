@@ -23,7 +23,13 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Camera, Plus, Save, Send, Trash2, Loader2, ArrowLeft, Check } from "lucide-react";
 import { format } from "date-fns";
-import type { Site, ChecklistItem, Inspection } from "@shared/schema";
+import type { Site, ChecklistItem, Inspection, InspectionEntry, Photo } from "@shared/schema";
+
+type InspectionDetail = {
+  inspection: Inspection;
+  site: Site;
+  entries: Array<InspectionEntry & { photos: Photo[] }>;
+};
 
 type EntryState = {
   uid: string;
@@ -56,7 +62,9 @@ export default function RunInspection() {
 
   const { data: site } = useQuery<Site>({ queryKey: ["/api/sites", siteId] });
   const { data: checklist, isLoading } = useQuery<ChecklistItem[]>({ queryKey: ["/api/sites", siteId, "checklist"] });
-  const { data: inspection } = useQuery<Inspection>({ queryKey: ["/api/inspections", inspectionId], enabled: !!inspectionId });
+  const { data: inspectionData } = useQuery<InspectionDetail>({ queryKey: ["/api/inspections", inspectionId], enabled: !!inspectionId });
+  const inspection = inspectionData?.inspection;
+  const savedEntries = inspectionData?.entries;
 
   const [entries, setEntries] = useState<EntryState[]>([]);
   const [weather, setWeather] = useState("");
@@ -68,23 +76,58 @@ export default function RunInspection() {
 
   useEffect(() => {
     if (initialised || !checklist) return;
-    setInspectorName(user?.name || "");
-    setEntries(
-      checklist.map((c) => ({
+    // If we have an inspection record (existing draft), wait for its entries
+    // to load before initialising so a saved draft is restored intact.
+    if (inspectionId && !inspectionData) return;
+
+    setInspectorName(inspection?.inspectorName || user?.name || "");
+    setWeather(inspection?.weather || "");
+    setGeneralNotes(inspection?.generalNotes || "");
+
+    // Build a checklist-id-indexed map of saved entries so we can restore
+    // status, note, severity and photos when reopening a draft. Observation
+    // entries (no checklist id) are appended as-is at the end.
+    const byChecklistId = new Map<number, (typeof savedEntries)[number]>();
+    const observations: typeof savedEntries = [] as any;
+    for (const e of savedEntries || []) {
+      if (e.checklistItemId != null) byChecklistId.set(e.checklistItemId, e);
+      else if (e.isObservation) (observations as any[]).push(e);
+    }
+
+    const restored: EntryState[] = checklist.map((c) => {
+      const saved = byChecklistId.get(c.id);
+      return {
         uid: `cl-${c.id}`,
         checklistItemId: c.id,
         label: c.label,
         section: c.section,
         requiresPhoto: c.requiresPhoto,
-        status: "na",
-        note: "",
-        severity: null,
+        status: (saved?.status as any) || "na",
+        note: saved?.note || "",
+        severity: saved?.severity ?? null,
         isObservation: false,
-        photos: [],
-      }))
-    );
+        photos: (saved?.photos || []).map((p) => ({ id: p.id, url: `/uploads/${p.filePath}` })),
+      };
+    });
+
+    for (const o of observations || []) {
+      restored.push({
+        uid: `obs-${o.id}`,
+        checklistItemId: null,
+        label: o.label || "",
+        section: "Observation",
+        requiresPhoto: false,
+        status: "observation",
+        note: o.note || "",
+        severity: o.severity ?? "minor",
+        isObservation: true,
+        photos: (o.photos || []).map((p) => ({ id: p.id, url: `/uploads/${p.filePath}` })),
+      });
+    }
+
+    setEntries(restored);
     setInitialised(true);
-  }, [checklist, initialised, user]);
+  }, [checklist, initialised, user, inspectionData, inspectionId, inspection, savedEntries]);
 
   function buildEntriesPayload() {
     return entries.map((e) => ({
