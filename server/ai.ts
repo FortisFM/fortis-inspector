@@ -188,31 +188,49 @@ export async function executiveSummary(opts: {
   inspector: string;
   weather: string;
   counts: { pass: number; fail: number; na: number; observations: number };
-  flagged: { label: string; severity: string }[];
+  sections: string[];
+  flagged: { label: string; severity: string; section?: string; note?: string; recommendedAction?: string }[];
 }): Promise<string> {
   const system =
-    "You write a short executive summary for a facilities management site inspection report. " +
-    "Two to three sentences only. State the overall site condition, then the most important issues. " +
+    "You write the executive summary for a facilities management site inspection report. " +
+    "Write one or two paragraphs of flowing prose, around 120 to 200 words total. " +
+    "Cover, in order: the overall condition of the site, what was inspected (use the section names), " +
+    "the key items requiring attention with their severity, and any standout observations. " +
+    "Refer to specific items by name where it helps. Do not invent items or numbers. " +
+    "If nothing was flagged, say the site is in good condition and briefly note what was checked. " +
     STYLE_RULES +
-    " Output plain text only. No headings or lists.";
+    " Output plain text only. No headings, no bullet lists, no markdown.";
 
   const flaggedText = opts.flagged.length
-    ? opts.flagged.map((f) => `- ${f.label} (${f.severity})`).join("\n")
+    ? opts.flagged
+        .map((f) => {
+          const parts = [`- ${f.label} (${f.severity})`];
+          if (f.section) parts.push(`section: ${f.section}`);
+          if (f.note) parts.push(`note: ${f.note}`);
+          if (f.recommendedAction) parts.push(`action: ${f.recommendedAction}`);
+          return parts.join("; ");
+        })
+        .join("\n")
     : "No items were flagged.";
+
+  const sectionsText = opts.sections.length
+    ? opts.sections.join(", ")
+    : "General checklist";
 
   const user = `Site: ${opts.siteName}
 Date: ${opts.date}
 Inspector: ${opts.inspector}
 Weather: ${opts.weather || "Not recorded"}
-Pass: ${opts.counts.pass}, Fail: ${opts.counts.fail}, N/A: ${opts.counts.na}, Observations: ${opts.counts.observations}
+Sections inspected: ${sectionsText}
+Results: ${opts.counts.pass} pass, ${opts.counts.fail} fail, ${opts.counts.na} not applicable, ${opts.counts.observations} observation${opts.counts.observations === 1 ? "" : "s"}
 Flagged items:
 ${flaggedText}
 
-Write the executive summary.`;
+Write the executive summary as one or two paragraphs.`;
 
   const res = await getClient().messages.create({
     model: MODEL_VISION,
-    max_tokens: 280,
+    max_tokens: 700,
     system,
     messages: [{ role: "user", content: user }],
   });

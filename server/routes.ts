@@ -90,7 +90,20 @@ async function buildExecutiveSummary(inspectionId: number) {
   };
   const flagged = entries
     .filter((e) => (e.status === "fail" || e.isObservation) && e.severity)
-    .map((e) => ({ label: e.label || "Observation", severity: e.severity || "info" }));
+    .map((e) => ({
+      label: e.label || "Observation",
+      severity: e.severity || "info",
+      section: e.section || "",
+      note: e.note || "",
+      recommendedAction: (e as any).recommendedAction || "",
+    }));
+  const sections = Array.from(
+    new Set(
+      entries
+        .filter((e) => !e.isObservation && e.section)
+        .map((e) => String(e.section)),
+    ),
+  );
   try {
     const summary = await executiveSummary({
       siteName: site?.name || "",
@@ -98,6 +111,7 @@ async function buildExecutiveSummary(inspectionId: number) {
       inspector: inspection.inspectorName,
       weather: inspection.weather,
       counts,
+      sections,
       flagged,
     });
     if (summary) storage.updateInspection(inspectionId, { executiveSummary: summary });
