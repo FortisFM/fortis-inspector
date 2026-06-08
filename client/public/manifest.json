@@ -1,6 +1,6 @@
 {
-  "name": "Fortis FM Site Inspector",
-  "short_name": "Fortis Inspector",
+  "name": "Fortis FM Inspector",
+  "short_name": "Fortis FM Inspector",
   "description": "Mobile site inspections, checklists, branded PDF reports and maintenance issue tracking for Fortis FM.",
   "start_url": "./",
   "scope": "./",

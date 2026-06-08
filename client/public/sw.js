@@ -1,9 +1,9 @@
-// Fortis FM Site Inspector service worker.
+// Fortis FM Inspector service worker.
 // Caches the app shell and static assets for offline launch.
 // API requests are never cached. Offline mutations are handled by the
 // in-app IndexedDB queue, not by the service worker.
 
-const CACHE = "fortis-inspector-v1";
+const CACHE = "fortis-inspector-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -70,7 +70,7 @@ self.addEventListener("fetch", (event) => {
 
 // Push notifications for due inspection reminders.
 self.addEventListener("push", (event) => {
-  let data = { title: "Fortis FM Site Inspector", body: "You have an update." };
+  let data = { title: "Fortis FM Inspector", body: "You have an update." };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch (e) {
