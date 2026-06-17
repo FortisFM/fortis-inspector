@@ -22,6 +22,7 @@ export const sites = sqliteTable("sites", {
   clientEmail: text("client_email").notNull().default(""),
   clientPhone: text("client_phone").notNull().default(""),
   notes: text("notes").notNull().default(""),
+  hubSlug: text("hub_slug").notNull().default(""),
   inspectionFrequencyDays: integer("inspection_frequency_days"),
   nextDueDate: text("next_due_date"),
   createdAt: integer("created_at").notNull(),
@@ -93,6 +94,8 @@ export const inspectionEntries = sqliteTable("inspection_entries", {
   severity: text("severity"), // 'info'|'minor'|'moderate'|'urgent'|null
   sortOrder: integer("sort_order").notNull().default(0),
   isObservation: integer("is_observation", { mode: "boolean" }).notNull().default(false),
+  hubWoReference: text("hub_wo_reference").notNull().default(""),
+  hubWoUrl: text("hub_wo_url").notNull().default(""),
 });
 export type InspectionEntry = typeof inspectionEntries.$inferSelect;
 

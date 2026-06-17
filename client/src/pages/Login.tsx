@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,16 @@ export default function Login() {
   const [email, setEmail] = useState("admin@fortisfm.com.au");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [reasonBanner, setReasonBanner] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const r = sessionStorage.getItem("fortis_logout_reason");
+      if (r === "idle") setReasonBanner("You were signed out after 30 minutes of inactivity. Please sign in again.");
+      else if (r === "closed") setReasonBanner("Your session ended when the app was closed. Please sign in again.");
+      sessionStorage.removeItem("fortis_logout_reason");
+    } catch {}
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,8 +52,13 @@ export default function Login() {
         </div>
         <Card className="border-card-border shadow-sm">
           <CardContent className="pt-6">
-            <h1 className="mb-1 font-serif text-xl font-semibold text-foreground">Site Inspector</h1>
+            <h1 className="mb-1 font-serif text-xl font-semibold text-foreground">Fortis FM Inspector</h1>
             <p className="mb-6 text-sm text-muted-foreground">Sign in to manage sites and inspections.</p>
+            {reasonBanner && (
+              <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="text-logout-reason">
+                {reasonBanner}
+              </div>
+            )}
             <form onSubmit={onSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>

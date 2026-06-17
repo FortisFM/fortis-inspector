@@ -128,9 +128,12 @@ function addColumnIfMissing(table: string, column: string, ddl: string) {
 }
 addColumnIfMissing("sites", "inspection_frequency_days", "inspection_frequency_days INTEGER");
 addColumnIfMissing("sites", "next_due_date", "next_due_date TEXT");
+addColumnIfMissing("sites", "hub_slug", "hub_slug TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("inspections", "executive_summary", "executive_summary TEXT");
 addColumnIfMissing("inspections", "inspection_date", "inspection_date TEXT");
 addColumnIfMissing("inspection_entries", "recommended_action", "recommended_action TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("inspection_entries", "hub_wo_reference", "hub_wo_reference TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("inspection_entries", "hub_wo_url", "hub_wo_url TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("entry_photos", "is_annotated", "is_annotated INTEGER NOT NULL DEFAULT 0");
 
 const now = () => Date.now();

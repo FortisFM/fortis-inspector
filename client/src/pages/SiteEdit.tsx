@@ -10,9 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CheckCircle2, AlertCircle, RotateCw } from "lucide-react";
 import { FrequencyPicker } from "@/components/FrequencyPicker";
 import { frequencyToValue, valueToDays } from "@/lib/due";
+import { slugify } from "@shared/slug";
 import type { Site } from "@shared/schema";
 
 export default function SiteEdit() {
@@ -22,28 +23,62 @@ export default function SiteEdit() {
   const { toast } = useToast();
   const { data: site, isLoading } = useQuery<Site>({ queryKey: ["/api/sites", siteId] });
 
-  const [form, setForm] = useState({ name: "", address: "", clientName: "", clientEmail: "", clientPhone: "", notes: "" });
+  const [form, setForm] = useState({ name: "", address: "", clientName: "", clientEmail: "", clientPhone: "", notes: "", hubSlug: "" });
   const [frequency, setFrequency] = useState("monthly");
   const [customDays, setCustomDays] = useState(30);
   const [nextDueDate, setNextDueDate] = useState("");
+  const [slugOverridden, setSlugOverridden] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<null | { ok: boolean; message: string }>(null);
   useEffect(() => {
     if (site) {
       setForm({
         name: site.name, address: site.address, clientName: site.clientName,
         clientEmail: site.clientEmail, clientPhone: site.clientPhone, notes: site.notes,
+        hubSlug: (site as any).hubSlug || slugify(site.name || ""),
       });
       const f = frequencyToValue(site.inspectionFrequencyDays);
       setFrequency(f.value);
       setCustomDays(f.customDays);
       // site.nextDueDate is stored as YYYY-MM-DD; if it has a time component, trim it
       setNextDueDate(site.nextDueDate ? String(site.nextDueDate).slice(0, 10) : "");
+      // Slug is considered overridden if it does not match auto-derived from current name
+      const auto = slugify(site.name || "");
+      const stored = (site as any).hubSlug || "";
+      setSlugOverridden(Boolean(stored && stored !== auto));
     }
   }, [site]);
+
+  // Auto-derive slug from name when user has not manually overridden it.
+  useEffect(() => {
+    if (!slugOverridden) {
+      setForm((f) => ({ ...f, hubSlug: slugify(f.name) }));
+    }
+    // Clear any stale verify result when the slug changes
+    setVerifyResult(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.name]);
+
+  const verify = useMutation({
+    mutationFn: async (slug: string) =>
+      (await apiRequest("GET", `/api/hub/site-check?slug=${encodeURIComponent(slug)}`)).json(),
+    onSuccess: (res: any) => {
+      if (res?.match) {
+        setVerifyResult({ ok: true, message: `Match found in Hub: ${res.match.name || form.hubSlug}` });
+      } else if (res?.suggestions?.length) {
+        setVerifyResult({ ok: false, message: `No exact match. Hub suggestions: ${res.suggestions.slice(0, 3).join(", ")}` });
+      } else {
+        setVerifyResult({ ok: false, message: "No match in Hub. Work Requests will create a new site there." });
+      }
+    },
+    onError: (e: any) =>
+      setVerifyResult({ ok: false, message: e?.message || "Could not reach the Hub." }),
+  });
 
   const save = useMutation({
     mutationFn: async () =>
       (await apiRequest("PATCH", `/api/sites/${siteId}`, {
         ...form,
+        hubSlug: form.hubSlug.trim() || slugify(form.name),
         inspectionFrequencyDays: valueToDays(frequency, customDays),
         nextDueDate: nextDueDate,
       })).json(),
@@ -97,6 +132,46 @@ export default function SiteEdit() {
               <Label htmlFor="nextDueDate">Next inspection due date</Label>
               <Input id="nextDueDate" type="date" value={nextDueDate} onChange={(e) => setNextDueDate(e.target.value)} data-testid="input-edit-next-due" />
               <p className="text-xs text-muted-foreground">Set the date the next inspection is due. The cycle continues from this date.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hubSlug">Fortis FM Hub slug</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="hubSlug"
+                  value={form.hubSlug}
+                  onChange={(e) => { setSlugOverridden(true); setForm((f) => ({ ...f, hubSlug: e.target.value })); setVerifyResult(null); }}
+                  placeholder="auto-generated from site name"
+                  data-testid="input-edit-hub-slug"
+                />
+                {slugOverridden && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Reset to auto"
+                    onClick={() => { setSlugOverridden(false); setForm((f) => ({ ...f, hubSlug: slugify(f.name) })); setVerifyResult(null); }}
+                    data-testid="button-reset-slug"
+                  >
+                    <RotateCw className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => verify.mutate(form.hubSlug.trim() || slugify(form.name))}
+                  disabled={verify.isPending || !(form.hubSlug.trim() || form.name.trim())}
+                  data-testid="button-verify-hub"
+                >
+                  {verify.isPending ? "Checking..." : "Verify against Hub"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Identifier used when posting Work Requests to the Fortis FM Hub. Auto-generated from the site name. Override only when the Hub already uses a different slug for this site.</p>
+              {verifyResult && (
+                <div className={`flex items-start gap-1.5 text-xs ${verifyResult.ok ? "text-green-700" : "text-amber-700"}`} data-testid="text-verify-result">
+                  {verifyResult.ok ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5" /> : <AlertCircle className="mt-0.5 h-3.5 w-3.5" />}
+                  <span>{verifyResult.message}</span>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>

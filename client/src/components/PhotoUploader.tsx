@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { uploadPhoto, API_BASE, getAuthToken } from "@/lib/queryClient";
-import { Camera, Image as ImageIcon, X, Loader2, PenLine } from "lucide-react";
+import { Camera, FolderOpen, X, Loader2, PenLine } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { AnnotationEditor } from "@/components/AnnotationEditor";
 
@@ -141,11 +141,11 @@ export function PhotoUploader({
           onClick={() => galleryInputRef.current?.click()}
           disabled={uploading}
           data-testid="button-add-photo-gallery"
-          aria-label="Choose from gallery"
+          aria-label="Choose from files or gallery"
           className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary"
         >
-          {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5" />}
-          <span className="text-[10px] leading-tight">{uploading ? "..." : "Gallery"}</span>
+          {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <FolderOpen className="h-5 w-5" />}
+          <span className="text-[10px] leading-tight">{uploading ? "..." : "Files"}</span>
         </button>
       </div>
 

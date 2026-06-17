@@ -2,9 +2,14 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 export const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
-// Auth token persisted in localStorage so logins survive page reloads and
-// app restarts. Cleared on logout or when the server returns 401.
+// Auth token persisted in localStorage so the token value survives reloads.
+// Session activity is tracked separately so we can enforce a 30 minute idle
+// timeout and require re-login after the PWA is fully closed.
 const TOKEN_KEY = "fortis_auth_token";
+const ACTIVE_SESSION_KEY = "fortis_active_session";
+const LAST_ACTIVITY_KEY = "fortis_last_activity";
+export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
 let authToken: string | null = (() => {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -23,6 +28,39 @@ export function setAuthToken(token: string | null) {
 }
 export function getAuthToken() {
   return authToken;
+}
+export function markSessionActive() {
+  try {
+    sessionStorage.setItem(ACTIVE_SESSION_KEY, "1");
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+  } catch {}
+}
+export function isSessionActive(): boolean {
+  try {
+    return sessionStorage.getItem(ACTIVE_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+export function clearSessionFlags() {
+  try {
+    sessionStorage.removeItem(ACTIVE_SESSION_KEY);
+    localStorage.removeItem(LAST_ACTIVITY_KEY);
+  } catch {}
+}
+export function touchActivity() {
+  try {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+  } catch {}
+}
+export function getIdleMs(): number {
+  try {
+    const v = localStorage.getItem(LAST_ACTIVITY_KEY);
+    if (!v) return Infinity;
+    return Date.now() - Number(v);
+  } catch {
+    return Infinity;
+  }
 }
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return authToken ? { ...extra, Authorization: `Bearer ${authToken}` } : extra;

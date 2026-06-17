@@ -8,6 +8,8 @@ import multer from "multer";
 import sharp from "sharp";
 import { storage, seedAdmin } from "./storage";
 import { insertSiteSchema, insertChecklistItemSchema, loginSchema, severityRank } from "@shared/schema";
+import { slugify } from "@shared/slug";
+import { listHubSites, createHubWorkRequest, hubEnabled } from "./hub";
 import type { InspectionEntry } from "@shared/schema";
 import { buildReportHtml, footerTemplate, headerTemplate } from "./report";
 import { aiEnabled, analysePhoto, polishNote, executiveSummary } from "./ai";
@@ -17,6 +19,7 @@ import { configurePush, pushEnabled, publicKey, pushAdmins, pushToAll } from "./
 
 import { UPLOAD_DIR, PDF_DIR, ensureDirs } from "./paths";
 import { sendInspectionReportEmail } from "./mailer";
+import { uploadInspectionPdf } from "./sharepoint";
 ensureDirs();
 
 // Return the inspection date as a Date object. Prefer the user-chosen
@@ -261,6 +264,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } else if (!data.inspectionFrequencyDays) {
       data.nextDueDate = null;
     }
+    if (!data.hubSlug || !String(data.hubSlug).trim()) {
+      data.hubSlug = slugify(String(data.name || ""));
+    }
     res.json(storage.createSite(data));
   });
 
@@ -268,6 +274,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const parsed = insertSiteSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid input" });
     const data: any = { ...parsed.data };
+    if (Object.prototype.hasOwnProperty.call(data, "hubSlug") && data.hubSlug != null) {
+      data.hubSlug = String(data.hubSlug).trim();
+    }
     const freqProvided = Object.prototype.hasOwnProperty.call(data, "inspectionFrequencyDays");
     const nextProvided = Object.prototype.hasOwnProperty.call(data, "nextDueDate");
     // Rules:
@@ -290,6 +299,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete("/api/sites/:id", requireAuth, (req, res) => {
     storage.deleteSite(Number(req.params.id));
     res.json({ ok: true });
+  });
+
+  // ---------------- Hub integration ----------------
+  // Verify that our site slugs match the Hub's. Returns each site with its
+  // configured slug, the auto-generated slug from its name, the Hub's match,
+  // and a status flag the UI can colour-code.
+  app.get("/api/hub/site-check", requireAuth, async (_req, res) => {
+    if (!hubEnabled()) {
+      return res.status(503).json({ message: "Hub integration is not configured on this server." });
+    }
+    try {
+      const hubSites = await listHubSites();
+      const hubBySlug = new Map(hubSites.map((s) => [s.slug, s]));
+      const localSites = storage.getSites();
+      const rows = localSites.map((site) => {
+        const auto = slugify(site.name);
+        const effective = (site.hubSlug && site.hubSlug.trim()) || auto;
+        const match = hubBySlug.get(effective);
+        return {
+          id: site.id,
+          name: site.name,
+          hubSlug: site.hubSlug || "",
+          autoSlug: auto,
+          effectiveSlug: effective,
+          status: match ? "matched" : "missing",
+          hubNickname: match?.nickname || null,
+        };
+      });
+      res.json({ rows, hubSites });
+    } catch (err: any) {
+      res.status(502).json({ message: err?.message || "Could not reach the Hub." });
+    }
   });
 
   // ---------------- Checklist Items ----------------
@@ -406,6 +447,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const insp = storage.getInspection(inspectionId);
         const site = insp ? storage.getSite(insp.siteId) : null;
         if (insp && site) {
+          // Build the issue summary so the email body includes failed items and photo links.
+          const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+          const host = req.get("host") || "";
+          const origin = `${proto}://${host}`;
+          const entries = storage.listEntries(insp.id);
+          const failedEntries = entries.filter((e) => e.status === "fail");
+          const issues = failedEntries.map((e) => ({
+            label: e.label,
+            severity: e.severity || "info",
+            section: e.section || null,
+            note: e.note || null,
+            recommendedAction: e.recommendedAction || null,
+            photos: storage
+              .listPhotos(e.id)
+              .map((p) => ({ url: `${origin}/uploads/${p.filePath}` })),
+          }));
+
           sendInspectionReportEmail({
             inspectionId: String(inspectionId),
             pdfPath,
@@ -417,7 +475,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               createdAt: insp.startedAt ? new Date(insp.startedAt).toISOString() : null,
               status: insp.status,
             },
+            issues,
           }).catch((err) => console.error("Mailer error:", err));
+
+          // SharePoint: file the PDF under Inspections/{Site}/{YYYY}/.
+          const inspDateStr = insp.inspectionDate || (insp.startedAt ? new Date(insp.startedAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+          const year = inspDateStr.slice(0, 4);
+          const siteSlug = slugify(site.name);
+          const filename = `${inspDateStr}-${siteSlug}-${insp.id}.pdf`;
+          uploadInspectionPdf({
+            siteName: site.name,
+            year,
+            filename,
+            pdfPath,
+          }).catch((err) => console.error("SharePoint error:", err));
         }
       } catch (err) {
         console.error("PDF generation failed:", err);
@@ -642,6 +713,80 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
     }
     res.json(storage.updateIssue(id, update));
+  });
+
+  // Create a Hub Work Request from an issue / entry. The Hub becomes the
+  // system of record. We store the returned WO reference on the entry so the
+  // button locks after the first success.
+  app.post("/api/issues/:id/work-request", requireAuth, async (req, res) => {
+    if (!hubEnabled()) {
+      return res.status(503).json({ message: "Hub integration is not configured on this server." });
+    }
+    const issue = storage.getIssue(Number(req.params.id));
+    if (!issue) return res.status(404).json({ message: "Issue not found" });
+    const entry = storage.getEntry(issue.entryId);
+    if (!entry) return res.status(404).json({ message: "Entry not found" });
+    if (entry.hubWoReference) {
+      return res.json({
+        ok: true,
+        reference: entry.hubWoReference,
+        hubUrl: entry.hubWoUrl,
+        alreadyExists: true,
+      });
+    }
+    const site = storage.getSite(issue.siteId);
+    if (!site) return res.status(404).json({ message: "Site not found" });
+    const inspection = storage.getInspection(issue.inspectionId);
+    const photos = storage.listPhotos(entry.id);
+    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+    const host = req.get("host") || "";
+    const origin = `${proto}://${host}`;
+    const attachmentUrls = photos
+      .map((p) => `${origin}/uploads/${p.filePath}`)
+      .slice(0, 5);
+    const slug = (site.hubSlug && site.hubSlug.trim()) || slugify(site.name);
+    const severity = (entry.severity || "").toLowerCase();
+    const priority: "low" | "medium" | "high" | "emergency" | "routine" =
+      severity === "urgent" ? "emergency" :
+      severity === "moderate" ? "high" :
+      severity === "minor" ? "medium" :
+      severity === "info" ? "low" : "medium";
+    const descriptionParts = [
+      entry.note || "",
+      entry.recommendedAction ? `Recommended action: ${entry.recommendedAction}` : "",
+      entry.section ? `Area / section: ${entry.section}` : "",
+      inspection ? `Inspection ID: ${inspection.id}` : "",
+    ].filter(Boolean);
+    const description = descriptionParts.join("\n\n") || `Issue identified during inspection at ${site.name}.`;
+    const inspector = inspection?.inspectorName ? { name: inspection.inspectorName } : undefined;
+    try {
+      const result = await createHubWorkRequest({
+        siteSlug: slug,
+        title: (entry.label || "Site issue").slice(0, 140),
+        description: description.slice(0, 4000),
+        priority,
+        locationDetail: entry.section || undefined,
+        inspector,
+        inspectionRef: inspection ? `INSP-${inspection.id}` : undefined,
+        inspectionUrl: inspection ? `${origin}/inspections/${inspection.id}` : undefined,
+        attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
+      });
+      storage.updateEntry(entry.id, {
+        hubWoReference: result.reference,
+        hubWoUrl: result.hubUrl,
+      } as any);
+      res.json({
+        ok: true,
+        reference: result.reference,
+        hubUrl: result.hubUrl,
+        alreadyExists: false,
+      });
+    } catch (err: any) {
+      const status = err?.status === 404 ? 400 : 502;
+      res.status(status).json({
+        message: err?.message || "Could not create the work request.",
+      });
+    }
   });
 
   // ---------------- Bulk issue actions ----------------

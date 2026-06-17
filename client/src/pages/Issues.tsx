@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, CheckCircle2, ChevronRight, ImageOff, Download, Mail, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, ImageOff, Download, Send, Loader2 } from "lucide-react";
 
 type IssueRow = {
   id: number;
@@ -112,8 +112,6 @@ export default function Issues() {
   }
 
   const selectedRows = filtered.filter((i) => selected.has(i.id));
-  const selectedSites = new Set(selectedRows.map((i) => i.siteId));
-  const mixedSites = selectedSites.size > 1;
 
   const bulk = useMutation({
     mutationFn: async (action: "resolve" | "in_progress") =>
@@ -127,53 +125,34 @@ export default function Issues() {
     onError: (e: any) => toast({ title: "Action failed", description: e.message, variant: "destructive" }),
   });
 
-  // Bulk email: only valid when all selected issues share one site.
-  function emailContractor() {
-    if (mixedSites) {
-      toast({ title: "One site at a time", description: "Select issues from a single site to email a contractor." });
-      return;
-    }
-    const first = selectedRows[0];
-    const siteName = first?.siteName || "site";
-    const siteAddress = first?.siteAddress || "Not on file";
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const blocks = selectedRows.map((i, idx) => {
-      const photoUrls = (i.photos || [])
-        .map((p) => (p?.filePath ? `${origin}/uploads/${p.filePath}` : ""))
-        .filter(Boolean);
-      return [
-        `${idx + 1}. ${i.label}`,
-        `   Area: ${i.section || "Not specified"}`,
-        `   Severity: ${SEV_NAME[i.severity] || i.severity}`,
-        `   Details: ${i.note || "No additional notes recorded."}`,
-        `   Recommended action: ${i.recommendedAction || "Attend the site, assess and rectify."}`,
-        photoUrls.length ? "   Photos:\n" + photoUrls.map((u) => "     " + u).join("\n") : "   Photos: none attached",
-      ].join("\n");
-    });
-    const subject = `Fortis FM maintenance request: ${siteName} (${selectedRows.length} item${selectedRows.length === 1 ? "" : "s"})`;
-    const body =
-`Hi,
-
-Fortis FM has identified maintenance items at one of our sites. Full details below so you can attend without needing to come back for more information.
-
-Site: ${siteName}
-Address: ${siteAddress}
-
-Items:
-
-${blocks.join("\n\n")}
-
-Approval:
-Works under $500 are pre-approved. If the work is anticipated to exceed $500, please provide a quote or estimate before proceeding.
-
-Please confirm availability and any quote required.
-
-Thanks,
-Fortis FM
-(07) 3472 7579
-admin@fortisfm.com.au`;
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  }
+  // Bulk Create Work Requests: posts each selected issue to the Fortis FM Hub.
+  const bulkWorkRequest = useMutation({
+    mutationFn: async () => {
+      const ids = Array.from(selected);
+      const results: Array<{ id: number; ok: boolean; reference?: string; error?: string }> = [];
+      for (const id of ids) {
+        try {
+          const res = await apiRequest("POST", `/api/issues/${id}/work-request`, {});
+          const json = await res.json();
+          results.push({ id, ok: true, reference: json?.reference });
+        } catch (e: any) {
+          results.push({ id, ok: false, error: e?.message || "failed" });
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/issues"] });
+      const ok = results.filter((r) => r.ok).length;
+      const fail = results.length - ok;
+      setSelected(new Set());
+      toast({
+        title: fail === 0 ? "Work Requests created" : `${ok} sent, ${fail} failed`,
+        description: fail === 0 ? `${ok} posted to the Hub.` : "Some issues could not be posted. Open each one to retry.",
+        variant: fail === 0 ? undefined : "destructive",
+      });
+    },
+  });
 
   async function exportIssues(fmt: "xlsx" | "csv") {
     try {
@@ -269,12 +248,9 @@ admin@fortisfm.com.au`;
       {selected.size > 0 && (
         <div className="sticky top-2 z-20 mb-4 flex flex-wrap items-center gap-2 rounded-md border bg-background/95 p-3 shadow-sm backdrop-blur" data-testid="bulk-toolbar">
           <span className="text-sm font-medium">{selected.size} selected</span>
-          {mixedSites && (
-            <span className="text-xs text-muted-foreground">Email is available when all selected issues are from one site.</span>
-          )}
           <div className="ml-auto flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={emailContractor} disabled={mixedSites} data-testid="button-bulk-email">
-              <Mail className="mr-1.5 h-4 w-4" /> Email contractor
+            <Button size="sm" variant="outline" onClick={() => bulkWorkRequest.mutate()} disabled={bulkWorkRequest.isPending} data-testid="button-bulk-work-request">
+              {bulkWorkRequest.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />} Create Work Requests
             </Button>
             <Button size="sm" variant="outline" onClick={() => bulk.mutate("in_progress")} disabled={bulk.isPending} data-testid="button-bulk-in-progress">
               {bulk.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Mark in progress

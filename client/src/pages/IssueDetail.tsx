@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLocation, useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, API_BASE } from "@/lib/queryClient";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Mail, CheckCircle2, Copy, Clock } from "lucide-react";
+import { ArrowLeft, Send, CheckCircle2, Clock, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 
 export default function IssueDetail() {
@@ -28,57 +27,9 @@ export default function IssueDetail() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<any>({ queryKey: ["/api/issues", id] });
 
-  const [emailOpen, setEmailOpen] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
-  const [to, setTo] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [followupPhotos, setFollowupPhotos] = useState<UploadedPhoto[]>([]);
-
-  useEffect(() => {
-    if (!data) return;
-    const site = data.site;
-    const entry = data.entry;
-    const inspection = data.inspection;
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const photoUrls: string[] = (entry?.photos || [])
-      .map((p: any) => (p?.filePath ? `${origin}/uploads/${p.filePath}` : ""))
-      .filter(Boolean);
-    const severityLabel = entry?.severity
-      ? entry.severity.charAt(0).toUpperCase() + entry.severity.slice(1)
-      : "Not specified";
-    const area = entry?.section || "Not specified";
-    const inspectionDate = inspection?.inspectionDate || (inspection?.startedAt ? new Date(inspection.startedAt).toISOString().slice(0, 10) : "");
-    setSubject(`Fortis FM maintenance request: ${entry?.label || "Site issue"} at ${site?.name || "site"}`);
-    setBody(
-`Hi,
-
-Fortis FM has identified a maintenance item at one of our sites. Full details below so you can attend without needing to come back for more information.
-
-Site: ${site?.name || ""}
-Address: ${site?.address || "Not on file"}
-Area / section: ${area}
-Inspection date: ${inspectionDate || "Not recorded"}
-
-Issue: ${entry?.label || ""}
-Severity: ${severityLabel}
-Details: ${entry?.note || "No additional notes recorded."}
-Recommended action: ${entry?.recommendedAction || "Attend the site, assess and rectify."}
-
-${photoUrls.length ? "Photos:\n" + photoUrls.map((u) => "  " + u).join("\n") : "No photos attached."}
-
-Approval:
-Works under $500 are pre-approved. If the work is anticipated to exceed $500, please provide a quote or estimate before proceeding.
-
-Please confirm availability and any quote required.
-
-Thanks,
-Fortis FM
-(07) 3472 7579
-admin@fortisfm.com.au`
-    );
-  }, [data]);
 
   const updateStatus = useMutation({
     mutationFn: async (payload: any) => (await apiRequest("PATCH", `/api/issues/${id}`, payload)).json(),
@@ -89,20 +40,35 @@ admin@fortisfm.com.au`
     },
   });
 
+  const createWorkRequest = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/issues/${id}/work-request`, {});
+      return res.json();
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/issues", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/issues"] });
+      toast({
+        title: "Work Request created",
+        description: result?.reference ? `Reference: ${result.reference}` : "Posted to Fortis FM Hub.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not create Work Request",
+        description: err?.message || "Hub did not accept the request.",
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) return <Skeleton className="h-96 w-full" />;
   if (!data || !data.entry) return <p>Issue not found.</p>;
 
   const { entry, site } = data;
   const urgentOverdue = entry.severity === "urgent" && data.ageDays > 7 && data.status !== "resolved";
-
-  function copyEmail() {
-    const text = `To: ${to}\nSubject: ${subject}\n\n${body}`;
-    navigator.clipboard?.writeText(text).then(
-      () => toast({ title: "Copied", description: "Email copied to clipboard." }),
-      () => toast({ title: "Copy failed", variant: "destructive" })
-    );
-  }
-  const mailtoHref = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const hubReference: string | undefined = entry.hubWoReference;
+  const hubUrl: string | undefined = entry.hubWoUrl;
 
   return (
     <>
@@ -115,8 +81,14 @@ admin@fortisfm.com.au`
         description={site?.name}
         actions={
           <>
-            <Button variant="outline" onClick={() => setEmailOpen(true)} data-testid="button-email-contractor">
-              <Mail className="mr-2 h-4 w-4" /> Email contractor
+            <Button
+              variant="outline"
+              onClick={() => createWorkRequest.mutate()}
+              disabled={createWorkRequest.isPending || Boolean(hubReference)}
+              data-testid="button-create-work-request"
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {hubReference ? "Work Request sent" : createWorkRequest.isPending ? "Sending..." : "Create Work Request"}
             </Button>
             {data.status !== "resolved" && (
               <Button onClick={() => setResolveOpen(true)} data-testid="button-open-resolve">
@@ -135,11 +107,31 @@ admin@fortisfm.com.au`
         </span>
       </div>
 
+      {hubReference && (
+        <Card className="mb-5 border-green-200 bg-green-50">
+          <CardContent className="flex flex-wrap items-center gap-3 p-4">
+            <CheckCircle2 className="h-5 w-5 text-green-700" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-green-900">Work Request: {hubReference}</p>
+              <p className="text-xs text-green-800">Posted to Fortis FM Hub.</p>
+            </div>
+            {hubUrl && (
+              <a href={hubUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="outline" data-testid="link-hub-work-request">
+                  Open in Hub <ExternalLink className="ml-2 h-3.5 w-3.5" />
+                </Button>
+              </a>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="mb-5">
         <CardContent className="space-y-3 p-5">
           {site?.address && <Field label="Site address" value={site.address} />}
           {entry.section && <Field label="Section" value={entry.section} />}
           {entry.note && <Field label="Details" value={entry.note} />}
+          {entry.recommendedAction && <Field label="Recommended action" value={entry.recommendedAction} />}
           <Field label="Reported" value={format(new Date(data.inspectionDate), "d MMM yyyy")} />
           {data.resolutionNote && <Field label="Resolution" value={data.resolutionNote} />}
         </CardContent>
@@ -171,42 +163,6 @@ admin@fortisfm.com.au`
           </div>
         </div>
       )}
-
-      {/* Email dialog */}
-      <Dialog open={emailOpen} onOpenChange={setEmailOpen}>
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-serif">Email contractor</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="to">To</Label>
-              <Input id="to" type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="contractor@example.com" data-testid="input-email-to" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="subject">Subject</Label>
-              <Input id="subject" value={subject} onChange={(e) => setSubject(e.target.value)} data-testid="input-email-subject" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="body">Message</Label>
-              <Textarea id="body" value={body} onChange={(e) => setBody(e.target.value)} rows={12} className="font-mono text-xs" data-testid="input-email-body" />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Real email sending (Microsoft 365) is not wired in this MVP. Use the buttons below to send via your mail app or copy the text. See the README for SMTP/Graph setup.
-            </p>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="outline" onClick={copyEmail} data-testid="button-copy-email">
-              <Copy className="mr-2 h-4 w-4" /> Copy
-            </Button>
-            <a href={mailtoHref} target="_blank" rel="noopener noreferrer">
-              <Button data-testid="button-open-mail">
-                <Mail className="mr-2 h-4 w-4" /> Open in mail app
-              </Button>
-            </a>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Resolve dialog */}
       <Dialog open={resolveOpen} onOpenChange={setResolveOpen}>
