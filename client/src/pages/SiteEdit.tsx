@@ -67,7 +67,7 @@ export default function SiteEdit() {
       } else if (res?.suggestions?.length) {
         setVerifyResult({ ok: false, message: `No exact match. Hub suggestions: ${res.suggestions.slice(0, 3).join(", ")}` });
       } else {
-        setVerifyResult({ ok: false, message: "No match in Hub. Work Requests will create a new site there." });
+        setVerifyResult({ ok: false, message: "No match in Hub. Add this site on the Hub first, or update the slug here to match an existing Hub site. Work Requests will fail until the slug matches." });
       }
     },
     onError: (e: any) =>
