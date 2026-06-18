@@ -302,16 +302,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------------- Hub integration ----------------
-  // Verify that our site slugs match the Hub's. Returns each site with its
-  // configured slug, the auto-generated slug from its name, the Hub's match,
-  // and a status flag the UI can colour-code.
-  app.get("/api/hub/site-check", requireAuth, async (_req, res) => {
+  // Verify a single slug against the Hub. Used by the Verify against Hub
+  // button on the Site edit page. If a slug is passed, the response contains:
+  //   { match: { slug, nickname } | null, suggestions: string[] }
+  // If no slug is passed, the response lists every local site with its match
+  // status against the Hub, which a future audit screen can use.
+  app.get("/api/hub/site-check", requireAuth, async (req, res) => {
     if (!hubEnabled()) {
       return res.status(503).json({ message: "Hub integration is not configured on this server." });
     }
     try {
       const hubSites = await listHubSites();
       const hubBySlug = new Map(hubSites.map((s) => [s.slug, s]));
+      const slugParam = typeof req.query.slug === "string" ? req.query.slug.trim() : "";
+
+      if (slugParam) {
+        const match = hubBySlug.get(slugParam) || null;
+        // Token-based fuzzy suggestion. Splits both the wanted slug and the
+        // Hub slugs on dashes, ranks by shared token count, returns top 5.
+        const wantedTokens = new Set(slugParam.split("-").filter(Boolean));
+        const ranked = hubSites
+          .filter((s) => s.slug !== slugParam)
+          .map((s) => {
+            const tokens = s.slug.split("-").filter(Boolean);
+            const shared = tokens.filter((t) => wantedTokens.has(t)).length;
+            return { slug: s.slug, nickname: s.nickname, shared };
+          })
+          .filter((s) => s.shared > 0)
+          .sort((a, b) => b.shared - a.shared)
+          .slice(0, 5)
+          .map((s) => s.slug);
+        return res.json({
+          match: match ? { slug: match.slug, name: match.nickname, nickname: match.nickname } : null,
+          suggestions: ranked,
+        });
+      }
+
+      // No slug: return the per-site audit.
       const localSites = storage.getSites();
       const rows = localSites.map((site) => {
         const auto = slugify(site.name);
