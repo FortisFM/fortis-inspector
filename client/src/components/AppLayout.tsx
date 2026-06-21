@@ -24,7 +24,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const SidebarInner = (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="px-5 pt-6 pb-5 border-b border-sidebar-border">
-        <img src={logoWhite} alt="Fortis FM" className="h-12 w-auto rounded-sm" data-testid="img-logo-sidebar" />
+        <Link
+          href="/"
+          onClick={() => setOpen(false)}
+          data-testid="link-logo-sidebar"
+          aria-label="Go to Sites"
+          className="inline-block rounded-sm focus:outline-none focus:ring-2 focus:ring-sidebar-accent"
+        >
+          <img src={logoWhite} alt="Fortis FM" className="h-12 w-auto rounded-sm" data-testid="img-logo-sidebar" />
+        </Link>
         <p className="mt-3 text-[11px] uppercase tracking-widest text-sidebar-foreground/55 font-medium">
           Site Inspector
         </p>
@@ -77,7 +85,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Mobile top bar */}
       <header className="md:hidden sticky top-0 z-30 flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-foreground">
-        <img src={logoWhite} alt="Fortis FM" className="h-8 w-auto rounded-sm" />
+        <Link
+          href="/"
+          data-testid="link-logo-mobile"
+          aria-label="Go to Sites"
+          className="inline-flex items-center rounded-sm focus:outline-none focus:ring-2 focus:ring-sidebar-accent"
+        >
+          <img src={logoWhite} alt="Fortis FM" className="h-8 w-auto rounded-sm" />
+        </Link>
         <button onClick={() => setOpen(true)} data-testid="button-menu-open" aria-label="Open menu">
           <Menu className="h-6 w-6" />
         </button>
