@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, MapPin, ClipboardList, AlertTriangle, ChevronRight, Download } from "lucide-react";
+import { Plus, Building2, MapPin, ClipboardList, AlertTriangle, ChevronRight, Download, Search, X } from "lucide-react";
 import { FrequencyPicker, DueBadge } from "@/components/FrequencyPicker";
 import { valueToDays } from "@/lib/due";
 import type { Site } from "@shared/schema";
@@ -123,11 +123,45 @@ function SiteFormDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
   );
 }
 
+type SiteFilter = "all" | "due" | "overdue" | "open-issues";
+
 export default function Sites() {
   const [, navigate] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<SiteFilter>("all");
   const { toast } = useToast();
   const { data: sites, isLoading } = useQuery<SiteWithStats[]>({ queryKey: ["/api/sites"] });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const soonCutoff = new Date(today);
+  soonCutoff.setDate(soonCutoff.getDate() + 7);
+
+  const q = search.trim().toLowerCase();
+  const filteredSites = (sites ?? []).filter((site) => {
+    if (q) {
+      const hay = `${site.name ?? ""} ${site.address ?? ""} ${site.clientName ?? ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (filter === "due") {
+      if (!site.nextDueDate) return false;
+      const due = new Date(site.nextDueDate);
+      due.setHours(0, 0, 0, 0);
+      if (due < today || due > soonCutoff) return false;
+    } else if (filter === "overdue") {
+      if (!site.nextDueDate) return false;
+      const due = new Date(site.nextDueDate);
+      due.setHours(0, 0, 0, 0);
+      if (due >= today) return false;
+    } else if (filter === "open-issues") {
+      if (!site.openIssues || site.openIssues <= 0) return false;
+    }
+    return true;
+  });
+
+  const hasSites = (sites?.length ?? 0) > 0;
+  const filtersActive = q.length > 0 || filter !== "all";
 
   async function exportSites(fmt: "xlsx" | "csv") {
     try {
@@ -160,6 +194,55 @@ export default function Sites() {
         }
       />
 
+      {hasSites && !isLoading && (
+        <div className="mb-4 space-y-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search sites by name, address, or client"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 pr-9"
+              data-testid="input-search-sites"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+                data-testid="button-clear-search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              { id: "all", label: "All sites" },
+              { id: "due", label: "Due soon" },
+              { id: "overdue", label: "Overdue" },
+              { id: "open-issues", label: "Has open issues" },
+            ] as { id: SiteFilter; label: string }[]).map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFilter(f.id)}
+                data-testid={`filter-${f.id}`}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  filter === f.id
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input bg-background text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {[0, 1, 2, 3].map((i) => (
@@ -181,9 +264,31 @@ export default function Sites() {
             </Button>
           </CardContent>
         </Card>
+      ) : filteredSites.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="mb-3 rounded-full bg-slate-100 p-3">
+              <Search className="h-6 w-6 text-primary" />
+            </div>
+            <h3 className="font-serif text-base font-semibold">No matches</h3>
+            <p className="mb-4 mt-1 max-w-xs text-sm text-muted-foreground">
+              Try a different search or clear the filters.
+            </p>
+            {filtersActive && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setSearch(""); setFilter("all"); }}
+                data-testid="button-clear-filters"
+              >
+                Clear filters
+              </Button>
+            )}
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {sites.map((site) => (
+          {filteredSites.map((site) => (
             <Link key={site.id} href={`/sites/${site.id}`} data-testid={`card-site-${site.id}`}>
               <Card className="group h-full cursor-pointer transition-shadow hover-elevate">
                 <CardContent className="p-5">
