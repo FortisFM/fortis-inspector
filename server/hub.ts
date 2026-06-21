@@ -4,7 +4,7 @@
 //
 // All Hub calls go server-to-server so the HUB_API_KEY never reaches the browser.
 
-const DEFAULT_BASE_URL = "https://request.fortisfm.com.au";
+const DEFAULT_BASE_URL = "https://hub.fortisfm.com.au";
 
 export type HubSiteSummary = { slug: string; nickname: string };
 

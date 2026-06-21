@@ -136,6 +136,21 @@ addColumnIfMissing("inspection_entries", "hub_wo_reference", "hub_wo_reference T
 addColumnIfMissing("inspection_entries", "hub_wo_url", "hub_wo_url TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("entry_photos", "is_annotated", "is_annotated INTEGER NOT NULL DEFAULT 0");
 
+// One-time data migration: the Hub moved from request.fortisfm.com.au to hub.fortisfm.com.au
+// on 2026-06-21. Any cached deep-links in inspection_entries.hub_wo_url that still point at
+// the old host get rewritten in place. Idempotent: it is a no-op once all rows are updated.
+try {
+  const stmt = sqlite.prepare(
+    "UPDATE inspection_entries SET hub_wo_url = REPLACE(hub_wo_url, 'https://request.fortisfm.com.au', 'https://hub.fortisfm.com.au') WHERE hub_wo_url LIKE 'https://request.fortisfm.com.au%'",
+  );
+  const info = stmt.run();
+  if (info.changes > 0) {
+    console.log(`[migrate] Rewrote ${info.changes} hub_wo_url row(s) from request.fortisfm.com.au to hub.fortisfm.com.au`);
+  }
+} catch (err) {
+  console.error("[migrate] Failed to rewrite stale hub_wo_url values:", err);
+}
+
 const now = () => Date.now();
 
 export const storage = {
