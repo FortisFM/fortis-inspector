@@ -8,7 +8,7 @@ import fs from "fs";
  *   AZURE_CLIENT_ID
  *   AZURE_CLIENT_SECRET
  *   SHAREPOINT_HOST           e.g. fortisfm.sharepoint.com
- *   SHAREPOINT_SITE_PATH      e.g. /sites/FortisFM
+ *   SHAREPOINT_SITE_PATH      e.g. /sites/FortisFMHub
  *
  * Optional:
  *   SHAREPOINT_DRIVE_NAME     defaults to Documents (the default library).
