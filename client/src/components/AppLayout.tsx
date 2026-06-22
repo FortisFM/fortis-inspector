@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Building2, AlertTriangle, Settings, LogOut, Menu, X, CalendarClock, BarChart3 } from "lucide-react";
+import { Building2, AlertTriangle, Settings, LogOut, Menu, X, CalendarClock, BarChart3, ExternalLink, LayoutGrid } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -59,6 +59,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </Link>
           );
         })}
+        <a
+          href="https://hub.fortisfm.com.au"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => setOpen(false)}
+          data-testid="link-nav-hub"
+          className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+        >
+          <LayoutGrid className="h-[18px] w-[18px]" />
+          <span className="flex-1">Fortis FM Hub</span>
+          <ExternalLink className="h-3.5 w-3.5 text-sidebar-foreground/55" />
+        </a>
       </nav>
       <div className="border-t border-sidebar-border p-4">
         <div className="mb-3 px-1">
